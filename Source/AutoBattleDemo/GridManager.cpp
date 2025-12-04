@@ -5,6 +5,7 @@
 #include "Containers/Queue.h"
 #include "Misc/AssertionMacros.h"
 
+
 /**
  * 构造函数：初始化默认值
  */
@@ -12,6 +13,10 @@ AGridManager::AGridManager()
 {
     PrimaryActorTick.bCanEverTick = false;  // 不需要每帧更新
     bDrawDebug = true;                      // 默认开启调试绘制（开发模式）
+
+    // 创建一个根组件，否则它在场景里没有坐标（Location 全是 0）
+    USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    RootComponent = SceneRoot;
 }
 
 /**
@@ -20,6 +25,56 @@ AGridManager::AGridManager()
 void AGridManager::BeginPlay()
 {
     Super::BeginPlay();
+
+    // 游戏一开始，生成一个 20x20 的网格，每个格子 100 单位
+    // 这样你一运行游戏就能看到白色的格子线
+    GenerateGrid(20, 20, 100.0f);
+
+
+    // ================= 自动化测试脚本 =================
+
+    // 1. 设置障碍物 (造一堵墙)
+    // 假设在 X=5 的位置，从 Y=0 到 Y=10 全堵死
+    for (int32 i = 0; i <= 10; i++)
+    {
+        SetTileBlocked(5, i, true);
+    }
+    UE_LOG(LogTemp, Warning, TEXT("[Test] Wall built at X=5"));
+
+    // 2. 定义起点和终点
+    // 起点 (0, 0)，终点 (10, 5)
+    // 正常走直线会被墙挡住，它应该绕路
+    FVector StartPos = GridToWorld(0, 0);
+    FVector EndPos = GridToWorld(10, 5);
+
+    // 3. 执行寻路
+    TArray<FVector> Path = FindPath(StartPos, EndPos);
+
+    // 4. 验证结果
+    if (Path.Num() > 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Test] Path Found! Steps: %d"), Path.Num());
+
+        // 画出路径线 (绿色)
+        for (int32 i = 0; i < Path.Num() - 1; i++)
+        {
+            DrawDebugLine(
+                GetWorld(),
+                Path[i] + FVector(0, 0, 10),      // 稍微抬高一点
+                Path[i + 1] + FVector(0, 0, 10),
+                FColor::Green,
+                true, -1.0f, 0, 5.0f            // 绿色粗线，永久显示
+            );
+
+            // 画出关键点 (黄色球)
+            DrawDebugSphere(GetWorld(), Path[i], 20.0f, 12, FColor::Yellow, true, -1.0f);
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("[Test] Path NOT Found! Algorithm failed?"));
+    }
+
 }
 
 /**
@@ -60,12 +115,12 @@ void AGridManager::GenerateGrid(int32 Width, int32 Height, float CellSize)
                 DrawDebugBox(
                     GetWorld(),
                     NewNode.WorldLocation,
-                    FVector(TileSize / 2 * 0.9f),  // 稍微缩小一点避免边框重叠
+                    FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 1.0f),  // 稍微缩小一点避免边框重叠
                     FColor::White,
                     true,                           // 持续显示
                     -1.0f,                          // 永久存在
                     0,
-                    1.0f                            // 线宽
+                    4.0f                            // 线宽
                 );
             }
         }
@@ -216,12 +271,12 @@ void AGridManager::SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked)
         DrawDebugBox(
             GetWorld(),
             GridNodes[Index].WorldLocation,
-            FVector(TileSize / 2 * 0.9f),
+            FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 2.0f),
             bBlocked ? FColor::Red : FColor::White,  // 阻挡为红色，否则白色
             true,
             30.0f,  // 持续30秒（便于观察）
             0,
-            2.0f    // 线宽加粗
+            3.0f    // 线宽加粗
         );
     }
 }

@@ -29,6 +29,10 @@ class AUTOBATTLEDEMO_API AGridManager : public AActor
 {
     GENERATED_BODY()
 
+protected:
+    // --- 声明游戏开始函数 ---
+    virtual void BeginPlay() override;
+
 public:
     AGridManager();
 
@@ -61,6 +65,10 @@ public:
     // 重点：如果找不到路径，返回空数组
     UFUNCTION(BlueprintCallable, Category = "Pathfinding")
         TArray<FVector> FindPath(FVector StartPos, FVector EndPos);
+
+    // --- 给它一个根组件，让它有坐标 ---
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+        class USceneComponent* SceneRoot;
 
 public:
     // 二维数组扁平化存储，或者使用 TArray<FGridNode>

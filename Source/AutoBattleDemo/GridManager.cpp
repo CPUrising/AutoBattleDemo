@@ -6,10 +6,24 @@ AGridManager::AGridManager()
 {
     PrimaryActorTick.bCanEverTick = false; // 不需要每帧运行
 
+    // --- 初始化根组件 ---
+    SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    RootComponent = SceneRoot; // 把这个组件设为根，这样 Actor 就有坐标了
+
     // 默认配置
     GridWidthCount = 20;
     GridHeightCount = 20;
     TileSize = 100.0f;
+}
+
+// 游戏开始时自动调用
+void AGridManager::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // 呼叫生成函数！
+    // 参数：宽20，高20，每个格子大小100
+    GenerateGrid(20, 20, 100.0f);
 }
 
 // 生成网格数据

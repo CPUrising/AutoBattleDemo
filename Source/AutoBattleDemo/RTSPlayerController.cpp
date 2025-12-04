@@ -2,6 +2,8 @@
 #include "RTSGameMode.h"
 #include "GridManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "Blueprint/UserWidget.h" //  CreateWidget 
+#include "RTSMainHUD.h"           //  UI C++ 类
 
 ARTSPlayerController::ARTSPlayerController()
 {
@@ -11,6 +13,39 @@ ARTSPlayerController::ARTSPlayerController()
     bIsPlacingUnit = false;
     PendingUnitType = EUnitType::Soldier;
 }
+
+void ARTSPlayerController::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // 1. 检查是否是本地玩家 (防止在多人联机的服务端创建 UI，虽然这里是单机但这是好习惯)
+    if (IsLocalPlayerController())
+    {
+        // 2. 检查有没有在编辑器里设置 UI 类
+        if (MainHUDClass)
+        {
+            // 3. 创建 UI 实例
+            MainHUDInstance = CreateWidget<URTSMainHUD>(this, MainHUDClass);
+
+            // 4. 添加到屏幕
+            if (MainHUDInstance)
+            {
+                MainHUDInstance->AddToViewport();
+
+                // (可选) 设为 GameAndUI 模式，确保能点按钮
+                FInputModeGameAndUI InputMode;
+                InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+                SetInputMode(InputMode);
+                bShowMouseCursor = true;
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("RTSPlayerController: MainHUDClass is NOT set! Go to BP_RTSPlayerController and assign WBP_RTSMain."));
+        }
+    }
+}
+
 
 void ARTSPlayerController::Tick(float DeltaTime)
 {

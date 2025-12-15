@@ -1,38 +1,81 @@
-// GridManager.h（接口保持不变，仅补充必要声明）
 #pragma once
-
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Engine/DataAsset.h"
 #include "GridManager.generated.h"
 
-/**
- * 网格节点结构体，存储单个格子的所有数据
- */
+// 单个格子的配置数据
+USTRUCT(BlueprintType)
+struct FGridConfig
+{
+    GENERATED_BODY()
+
+        UPROPERTY(EditAnywhere, BlueprintReadWrite)
+        int32 X;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+        int32 Y;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+        bool bIsBlocked;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+        TSubclassOf<AActor> BuildingClass; // 该格子上的建筑类型
+};
+
+// 关卡地图数据资产
+UCLASS()
+class AUTOBATTLEDEMO_API ULevelDataAsset : public UDataAsset
+{
+    GENERATED_BODY()
+
+public:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        int32 GridWidth;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        int32 GridHeight;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        float CellSize;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        TArray<FGridConfig> GridConfigurations; // 格子配置列表
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        FIntPoint PlayerBaseLocation; // 玩家基地位置
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Level Config")
+        FIntPoint EnemyBaseLocation; // 敌人基地位置
+};
+
+// 格子节点结构体
 USTRUCT(BlueprintType)
 struct FGridNode
 {
     GENERATED_BODY()
 
-        // 格子在网格中的X坐标
-        UPROPERTY()
         int32 X;
-    // 格子在网格中的Y坐标
-    UPROPERTY()
-        int32 Y;
-    // 是否被阻挡（如建筑、障碍物）
-    UPROPERTY()
-        bool bIsBlocked;
-    // 格子中心点的世界坐标
-    UPROPERTY()
-        FVector WorldLocation;
-    // 地形成本（影响移动消耗，平地1.0，沼泽等可设更高值）
-    UPROPERTY()
-        float Cost;
+    int32 Y;
+    FVector WorldLocation;
+    bool bIsBlocked;
+    float Cost;
+    AActor* OccupyingActor; // 当前占据的演员（建筑/单位）
+
+    // 寻路相关
+    float GCost; // 从起点到当前节点的成本
+    float HCost; // 到终点的预估成本
+    FGridNode* ParentNode;
+
+    FGridNode() : X(0), Y(0), bIsBlocked(false), Cost(1.0f),
+        OccupyingActor(nullptr), GCost(0), HCost(0), ParentNode(nullptr) {}
+
+    float GetFCost() const { return GCost + HCost; }
 };
 
-/**
- * 网格管理器类，负责网格生成、坐标转换和路径查找
- */
+// 用于通知单位重新寻路的委托
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnGridUpdated, int32, int32); // 保持不变，语义仍匹配
+
 UCLASS()
 class AUTOBATTLEDEMO_API AGridManager : public AActor
 {
@@ -40,121 +83,76 @@ class AUTOBATTLEDEMO_API AGridManager : public AActor
 
 public:
     AGridManager();
+
+    // 初始化网格
+    UFUNCTION(BlueprintCallable, Category = "Grid")
+        void InitializeGridFromLevelData(ULevelDataAsset* LevelData);
+
+    // 更新格子状态（动态阻挡）
+    UFUNCTION(BlueprintCallable, Category = "Grid")
+        void SetTileBlocked(int32 X, int32 Y, bool bBlocked, AActor* OccupyingActor = nullptr);
+
+    // 世界坐标转格子坐标
+    UFUNCTION(BlueprintCallable, Category = "Grid")
+        bool WorldToGrid(FVector WorldPos, int32& OutX, int32& OutY);
+
+    // 格子坐标转世界坐标
+    UFUNCTION(BlueprintCallable, Category = "Grid")
+        FVector GridToWorld(int32 X, int32 Y);
+
+    // 检查格子是否可走
     UFUNCTION(BlueprintCallable, Category = "Grid")
         bool IsTileWalkable(int32 X, int32 Y);
-    /**
-     * 生成网格并初始化所有节点
-     * @param Width 网格宽度（X方向格子数量）
-     * @param Height 网格高度（Y方向格子数量）
-     * @param CellSize 每个格子的尺寸（世界单位）
-     */
-    UFUNCTION(BlueprintCallable, Category = "Grid")
-        void GenerateGrid(int32 Width, int32 Height, float CellSize);
 
-    /**
-     * 查找从起点到终点的路径（A*算法实现）
-     * @param StartWorldLoc 起点世界坐标
-     * @param EndWorldLoc 终点世界坐标
-     * @return 路径点列表（世界坐标），若找不到路径则返回空数组
-     */
-    UFUNCTION(BlueprintCallable, Category = "Grid")
-        TArray<FVector> FindPath(const FVector& StartWorldLoc, const FVector& EndWorldLoc);
+    // 寻路算法（A*）
+    UFUNCTION(BlueprintCallable, Category = "Pathfinding")
+        TArray<FVector> FindPath(FVector StartPos, FVector EndPos);
 
-    /**
-     * 设置指定格子的阻挡状态
-     * @param GridX 格子X坐标
-     * @param GridY 格子Y坐标
-     * @param bBlocked 是否阻挡
-     */
-    UFUNCTION(BlueprintCallable, Category = "Grid")
-        void SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked);
+    // 获取当前关卡数据
+    UFUNCTION(BlueprintCallable, Category = "Level")
+        ULevelDataAsset* GetCurrentLevelData() const { return CurrentLevelData; }
 
-    /**
-     * 将网格坐标转换为世界坐标
-     * @param GridX 格子X坐标
-     * @param GridY 格子Y坐标
-     * @return 对应格子中心点的世界坐标
-     */
-    UFUNCTION(BlueprintCallable, Category = "Grid")
-        FVector GridToWorld(int32 GridX, int32 GridY) const;
+    // 加载新关卡
+    UFUNCTION(BlueprintCallable, Category = "Level")
+        void LoadLevelData(ULevelDataAsset* NewLevelData);
 
-    /**
-     * 将世界坐标转换为网格坐标
-     * @param WorldLoc 世界坐标
-     * @param OutGridX 输出格子X坐标
-     * @param OutGridY 输出格子Y坐标
-     * @return 是否成功转换（坐标在网格范围内）
-     */
-    UFUNCTION(BlueprintCallable, Category = "Grid")
-        bool WorldToGrid(const FVector& WorldLoc, int32& OutGridX, int32& OutGridY) const;
+    // 获取网格更新委托
+    FOnGridUpdated& GetGridUpdatedDelegate() { return OnGridUpdated; }
 
 protected:
-    // 游戏开始时调用
     virtual void BeginPlay() override;
 
 private:
-    /**
-     * A*算法节点结构体，用于路径计算
-     */
-    struct FAStarNode
-    {
-        int32 X;               // 节点X坐标
-        int32 Y;               // 节点Y坐标
-        float G;               // 起点到当前节点的实际成本
-        float H;               // 当前节点到终点的预估成本（启发式）
-        TWeakPtr<FAStarNode> Parent;  // 父节点（用于回溯路径）
+    // 检查坐标是否有效
+    bool IsValidCoordinate(int32 X, int32 Y) const;
 
-        // 计算总成本（F = G + H）
-        float F() const { return G + H; }
-        // 构造函数
-        FAStarNode(int32 InX, int32 InY) : X(InX), Y(InY), G(0), H(0) {}
-    };
+    // 获取邻居节点
+    TArray<FGridNode*> GetNeighborNodes(FGridNode* CurrentNode);
 
-    /**
-     * 检查格子是否有效（在网格范围内且未被阻挡）
-     * @param GridX 格子X坐标
-     * @param GridY 格子Y坐标
-     * @return 是否有效
-     */
-    bool IsTileValid(int32 GridX, int32 GridY) const;
+    // 计算启发式成本
+    float CalculateHCost(int32 X, int32 Y, int32 TargetX, int32 TargetY);
 
-    /**
-     * 计算启发式成本（曼哈顿距离）
-     * @param X1 起点X
-     * @param Y1 起点Y
-     * @param X2 终点X
-     * @param Y2 终点Y
-     * @return 启发式成本值
-     */
-    float GetHeuristicCost(int32 X1, int32 Y1, int32 X2, int32 Y2) const;
+    // 重置寻路数据
+    void ResetPathfindingData();
 
-    /**
-     * 获取指定格子的所有有效邻居节点（四方向）
-     * @param X 格子X坐标
-     * @param Y 格子Y坐标
-     * @return 邻居节点坐标列表
-     */
-    TArray<FIntPoint> GetNeighborNodes(int32 X, int32 Y) const;
+    // 从配置生成网格
+    void GenerateGridFromConfig(ULevelDataAsset* LevelData);
 
-    /**
-     * 优化路径（移除冗余节点，使路径更平滑）
-     * @param RawPath 原始路径
-     */
-    void OptimizePath(TArray<FIntPoint>& RawPath);
+    // 网格数据（一维数组模拟二维）
+    TArray<FGridNode> GridNodes;
 
-    // 存储所有网格节点（一维数组模拟二维）
-    UPROPERTY()
-        TArray<FGridNode> GridNodes;
-    // 网格宽度（X方向格子数量）
-    UPROPERTY()
-        int32 GridWidthCount;
-    // 网格高度（Y方向格子数量）
-    UPROPERTY()
-        int32 GridHeightCount;
-    // 每个格子的尺寸（世界单位）
-    UPROPERTY()
-        float TileSize;
-    // 调试绘制开关（开发模式使用）
-    UPROPERTY(EditAnywhere, Category = "Debug")
-        bool bDrawDebug;
+    // 当前关卡数据
+    UPROPERTY(Transient)
+        ULevelDataAsset* CurrentLevelData;
+
+    // 网格属性
+    int32 GridWidth;
+    int32 GridHeight;
+    float CellSize;
+
+    // 网格更新委托（通知单位重新寻路）
+    FOnGridUpdated OnGridUpdated;
+
+    // 调试用：绘制网格
+    void DrawDebugGrid();
 };

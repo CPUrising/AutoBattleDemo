@@ -1,366 +1,311 @@
-// GridManager.cpp（核心实现改进）
 #include "GridManager.h"
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
-#include "Containers/Queue.h"
-#include "Misc/AssertionMacros.h"
+#include "Kismet/GameplayStatics.h"
 
-/**
- * 构造函数：初始化默认值
- */
 AGridManager::AGridManager()
 {
-    PrimaryActorTick.bCanEverTick = false;  // 不需要每帧更新
-    bDrawDebug = true;                      // 默认开启调试绘制（开发模式）
+    PrimaryActorTick.bCanEverTick = false;
+    GridWidth = 20;
+    GridHeight = 20;
+    CellSize = 100.0f;
 }
 
-/**
- * 游戏开始时调用
- */
 void AGridManager::BeginPlay()
 {
     Super::BeginPlay();
 }
 
-/**
- * 生成网格并初始化所有节点
- * @param Width 网格宽度（X方向格子数量）
- * @param Height 网格高度（Y方向格子数量）
- * @param CellSize 每个格子的尺寸（世界单位）
- */
-void AGridManager::GenerateGrid(int32 Width, int32 Height, float CellSize)
+void AGridManager::InitializeGridFromLevelData(ULevelDataAsset* LevelData)
 {
-    GridWidthCount = Width;
-    GridHeightCount = Height;
-    TileSize = CellSize;
-    GridNodes.Empty();
-    GridNodes.Reserve(Width * Height);  // 预分配内存，减少动态扩容开销
-
-    // 双重循环初始化所有格子
-    for (int32 Y = 0; Y < Height; Y++)
+    if (LevelData)
     {
-        for (int32 X = 0; X < Width; X++)
-        {
-            FGridNode NewNode;
-            NewNode.X = X;
-            NewNode.Y = Y;
-            NewNode.bIsBlocked = false;       // 默认所有格子可通行
-            NewNode.Cost = 1.0f;              // 默认地形成本为1.0
-            // 计算格子中心点世界坐标（基于管理器自身位置）
-            NewNode.WorldLocation = GetActorLocation() + FVector(
-                X * TileSize + TileSize / 2,  // X方向偏移（加一半尺寸居中）
-                Y * TileSize + TileSize / 2,  // Y方向偏移（加一半尺寸居中）
-                0.0f                         // Z轴默认为0（忽略高度）
-            );
-            GridNodes.Add(NewNode);
-
-            // 调试绘制格子边框（仅在非编辑器世界且开启调试时）
-            if (bDrawDebug && GetWorld()->GetName() != TEXT("EditorWorld"))
-            {
-                DrawDebugBox(
-                    GetWorld(),
-                    NewNode.WorldLocation,
-                    FVector(TileSize / 2 * 0.9f),  // 稍微缩小一点避免边框重叠
-                    FColor::White,
-                    true,                           // 持续显示
-                    -1.0f,                          // 永久存在
-                    0,
-                    1.0f                            // 线宽
-                );
-            }
-        }
+        LoadLevelData(LevelData);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("LevelData is null!"));
     }
 }
 
-/**
- * 查找从起点到终点的路径（A*算法实现）
- * @param StartWorldLoc 起点世界坐标
- * @param EndWorldLoc 终点世界坐标
- * @return 路径点列表（世界坐标）
- */
-TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVector& EndWorldLoc)
+void AGridManager::SetTileBlocked(int32 X, int32 Y, bool bBlocked, AActor* OccupyingActor)
 {
-    TArray<FVector> Path;  // 最终路径（世界坐标）
-    int32 StartX, StartY, EndX, EndY;
+    if (!IsValidCoordinate(X, Y)) return;
 
-    // 1. 将起点和终点世界坐标转换为网格坐标并校验
-    if (!WorldToGrid(StartWorldLoc, StartX, StartY) || !WorldToGrid(EndWorldLoc, EndX, EndY))
+    int32 Index = Y * GridWidth + X;
+    if (Index >= 0 && Index < GridNodes.Num())
     {
-        UE_LOG(LogTemp, Warning, TEXT("Start or end position is out of grid bounds"));
-        return Path;  // 坐标超出网格范围，返回空路径
-    }
-    if (!IsTileValid(StartX, StartY) || !IsTileValid(EndX, EndY))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Start or end tile is blocked"));
-        return Path;  // 起点或终点被阻挡，返回空路径
-    }
+        GridNodes[Index].bIsBlocked = bBlocked;
+        GridNodes[Index].OccupyingActor = OccupyingActor;
 
-    // 2. A*算法核心实现
-    // 开放集：待检查的节点（用Map存储便于查找）
-    TMap<FIntPoint, TSharedPtr<FAStarNode>> OpenSet;
-    // 关闭集：已检查的节点
-    TMap<FIntPoint, TSharedPtr<FAStarNode>> ClosedSet;
-    // 初始化起点节点
-    auto StartNode = MakeShareable(new FAStarNode(StartX, StartY));
-    OpenSet.Add(FIntPoint(StartX, StartY), StartNode);
+        // 通知所有单位该格子状态已更新，需要重新寻路
+        OnGridUpdated.Broadcast(X, Y);
 
-    // 循环处理开放集中的节点
-    while (OpenSet.Num() > 0)
-    {
-        // 找到开放集中F值最小的节点（总成本最低）
-        TSharedPtr<FAStarNode> CurrentNode = nullptr;
-        FIntPoint CurrentKey;
-        for (const auto& Pair : OpenSet)
-        {
-            if (!CurrentNode || Pair.Value->F() < CurrentNode->F())
-            {
-                CurrentNode = Pair.Value;
-                CurrentKey = Pair.Key;
-            }
-        }
-
-        // 到达终点，回溯路径
-        if (CurrentKey.X == EndX && CurrentKey.Y == EndY)
-        {
-            TArray<FIntPoint> RawPath;  // 原始路径（网格坐标）
-            // 从终点回溯到起点
-            while (CurrentNode.IsValid())
-            {
-                RawPath.Add(FIntPoint(CurrentNode->X, CurrentNode->Y));
-                CurrentNode = CurrentNode->Parent.Pin();  // 沿父节点回溯
-            }
-            // 替换 Algo::Reverse(RawPath); 为手动反转
-            int32 PathLength = RawPath.Num();
-            for (int32 i = 0; i < PathLength / 2; ++i)
-            {
-                // 交换第i个和第(PathLength-1-i)个元素
-                FIntPoint Temp = RawPath[i];
-                RawPath[i] = RawPath[PathLength - 1 - i];
-                RawPath[PathLength - 1 - i] = Temp;
-            }
-            OptimizePath(RawPath);  // 优化路径（移除冗余点）
-
-            // 将网格坐标转换为世界坐标
-            for (const auto& GridPos : RawPath)
-            {
-                Path.Add(GridToWorld(GridPos.X, GridPos.Y));
-            }
-            return Path;
-        }
-
-        // 将当前节点从开放集移到关闭集
-        OpenSet.Remove(CurrentKey);
-        ClosedSet.Add(CurrentKey, CurrentNode);
-
-        // 处理当前节点的所有邻居
-        for (const auto& Neighbor : GetNeighborNodes(CurrentNode->X, CurrentNode->Y))
-        {
-            FIntPoint NeighborKey = Neighbor;
-            // 跳过已在关闭集或不可通行的节点
-            if (ClosedSet.Contains(NeighborKey) || !IsTileValid(Neighbor.X, Neighbor.Y))
-            {
-                continue;
-            }
-
-            // 计算从起点到当前邻居的实际成本
-            float NewG = CurrentNode->G + GetHeuristicCost(
-                CurrentNode->X, CurrentNode->Y,
-                Neighbor.X, Neighbor.Y
-            ) * GridNodes[Neighbor.Y * GridWidthCount + Neighbor.X].Cost;
-
-            TSharedPtr<FAStarNode> NeighborNode;
-            // 如果邻居已在开放集
-            if (OpenSet.Contains(NeighborKey))
-            {
-                NeighborNode = OpenSet[NeighborKey];
-                // 新路径成本更高，无需更新
-                if (NewG >= NeighborNode->G) continue;
-            }
-            // 邻居不在开放集，创建新节点
-            else
-            {
-                NeighborNode = MakeShareable(new FAStarNode(Neighbor.X, Neighbor.Y));
-                OpenSet.Add(NeighborKey, NeighborNode);
-            }
-
-            // 更新邻居节点信息
-            NeighborNode->G = NewG;  // 更新实际成本
-            NeighborNode->H = GetHeuristicCost(Neighbor.X, Neighbor.Y, EndX, EndY);  // 更新预估成本
-            NeighborNode->Parent = CurrentNode;  // 设置父节点
-        }
-    }
-
-    // 开放集为空且未找到终点，寻路失败
-    UE_LOG(LogTemp, Warning, TEXT("No path found between start and end"));
-    return Path;
-}
-
-/**
- * 设置指定格子的阻挡状态
- * @param GridX 格子X坐标
- * @param GridY 格子Y坐标
- * @param bBlocked 是否阻挡
- */
-void AGridManager::SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked)
-{
-    // 检查格子是否有效
-    if (!IsTileValid(GridX, GridY)) return;
-
-    // 更新阻挡状态
-    int32 Index = GridY * GridWidthCount + GridX;
-    GridNodes[Index].bIsBlocked = bBlocked;
-
-    // 调试显示：阻挡的格子显示红色边框
-    if (bDrawDebug)
-    {
-        DrawDebugBox(
-            GetWorld(),
-            GridNodes[Index].WorldLocation,
-            FVector(TileSize / 2 * 0.9f),
-            bBlocked ? FColor::Red : FColor::White,  // 阻挡为红色，否则白色
-            true,
-            30.0f,  // 持续30秒（便于观察）
-            0,
-            2.0f    // 线宽加粗
-        );
+        // 调试输出
+        UE_LOG(LogTemp, Log, TEXT("Grid (%d,%d) updated - Blocked: %s"), X, Y, bBlocked ? TEXT("True") : TEXT("False"));
     }
 }
 
-/**
- * 将网格坐标转换为世界坐标
- * @param GridX 格子X坐标
- * @param GridY 格子Y坐标
- * @return 对应格子中心点的世界坐标
- */
-FVector AGridManager::GridToWorld(int32 GridX, int32 GridY) const
+bool AGridManager::WorldToGrid(FVector WorldPos, int32& OutX, int32& OutY)
 {
-    // 检查格子是否有效
-    if (!IsTileValid(GridX, GridY)) return FVector::ZeroVector;
+    OutX = FMath::FloorToInt((WorldPos.X) / CellSize);
+    OutY = FMath::FloorToInt((WorldPos.Y) / CellSize);
 
-    // 返回预计算的世界坐标
-    return GridNodes[GridY * GridWidthCount + GridX].WorldLocation;
+    return IsValidCoordinate(OutX, OutY);
 }
 
-/**
- * 将世界坐标转换为网格坐标
- * @param WorldLoc 世界坐标
- * @param OutGridX 输出格子X坐标
- * @param OutGridY 输出格子Y坐标
- * @return 是否成功转换（坐标在网格范围内）
- */
-bool AGridManager::WorldToGrid(const FVector& WorldLoc, int32& OutGridX, int32& OutGridY) const
+FVector AGridManager::GridToWorld(int32 X, int32 Y)
 {
-    // 转换为相对于网格管理器的本地坐标
-    FVector LocalLoc = WorldLoc - GetActorLocation();
+    if (!IsValidCoordinate(X, Y)) return FVector::ZeroVector;
 
-    // 计算网格坐标（向下取整）
-    OutGridX = FMath::FloorToInt(LocalLoc.X / TileSize);
-    OutGridY = FMath::FloorToInt(LocalLoc.Y / TileSize);
-
-    // 检查是否在网格范围内
-    return IsTileValid(OutGridX, OutGridY);
-}
-
-/**
- * 检查格子是否有效（在网格范围内且未被阻挡）
- * @param GridX 格子X坐标
- * @param GridY 格子Y坐标
- * @return 是否有效
- */
-bool AGridManager::IsTileValid(int32 GridX, int32 GridY) const
-{
-    // 检查坐标是否在网格范围内
-    if (GridX < 0 || GridX >= GridWidthCount || GridY < 0 || GridY >= GridHeightCount)
-        return false;
-
-    // 检查格子是否未被阻挡
-    return !GridNodes[GridY * GridWidthCount + GridX].bIsBlocked;
+    return FVector(
+        X * CellSize + CellSize / 2.0f,
+        Y * CellSize + CellSize / 2.0f,
+        0.0f
+    );
 }
 
 bool AGridManager::IsTileWalkable(int32 X, int32 Y)
 {
-    // 1. 检查坐标是否超出网格范围（越界则不可走）
-    if (X < 0 || X >= GridWidthCount || Y < 0 || Y >= GridHeightCount)
-    {
-        return false;
-    }
+    if (!IsValidCoordinate(X, Y)) return false;
 
-    // 2. 计算一维数组索引（将二维坐标转换为扁平化数组索引）
-    int32 Index = Y * GridWidthCount + X;
-
-    // 3. 检查索引有效性并返回是否可走（!bIsBlocked 表示可走）
-    if (GridNodes.IsValidIndex(Index))
-    {
-        return !GridNodes[Index].bIsBlocked;
-    }
-
-    // 索引无效时默认不可走
-    return false;
-}
-/**
- * 计算启发式成本（曼哈顿距离）
- * 曼哈顿距离：|x1-x2| + |y1-y2|，适用于四方向移动
- * @param X1 起点X
- * @param Y1 起点Y
- * @param X2 终点X
- * @param Y2 终点Y
- * @return 启发式成本值
- */
-float AGridManager::GetHeuristicCost(int32 X1, int32 Y1, int32 X2, int32 Y2) const
-{
-    return FMath::Abs(X1 - X2) + FMath::Abs(Y1 - Y2);
+    int32 Index = Y * GridWidth + X;
+    return !GridNodes[Index].bIsBlocked;
 }
 
-/**
- * 获取指定格子的所有有效邻居节点（四方向：上下左右）
- * @param X 格子X坐标
- * @param Y 格子Y坐标
- * @return 邻居节点坐标列表
- */
-TArray<FIntPoint> AGridManager::GetNeighborNodes(int32 X, int32 Y) const
+TArray<FVector> AGridManager::FindPath(FVector StartPos, FVector EndPos)
 {
-    TArray<FIntPoint> Neighbors;
-    // 四方向偏移量（右、左、上、下）
-    const int32 Directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+    TArray<FVector> Path;
 
-    // 检查每个方向的邻居是否有效
-    for (const auto& Dir : Directions)
+    // 转换起点和终点到网格坐标
+    int32 StartX, StartY, EndX, EndY;
+    if (!WorldToGrid(StartPos, StartX, StartY) || !WorldToGrid(EndPos, EndX, EndY))
     {
-        int32 NewX = X + Dir[0];
-        int32 NewY = Y + Dir[1];
-        if (IsTileValid(NewX, NewY))
+        UE_LOG(LogTemp, Warning, TEXT("Start or end position is out of grid bounds!"));
+        return Path;
+    }
+
+    // 检查终点是否可走
+    if (!IsTileWalkable(EndX, EndY))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("End position is blocked!"));
+        return Path;
+    }
+
+    // 重置寻路数据
+    ResetPathfindingData();
+
+    // 找到起点和终点节点
+    FGridNode* StartNode = &GridNodes[StartY * GridWidth + StartX];
+    FGridNode* EndNode = &GridNodes[EndY * GridWidth + EndX];
+
+    // ========== 修复：替换 TPriorityQueue 为 TArray + 排序 ==========
+    // 开放列表（存储待处理节点）
+    TArray<FGridNode*> OpenList;
+    // 关闭列表（存储已处理节点）
+    TSet<FGridNode*> ClosedList;
+
+    // 初始化起点节点
+    StartNode->GCost = 0;
+    StartNode->HCost = CalculateHCost(StartNode->X, StartNode->Y, EndX, EndY);
+    OpenList.Add(StartNode);
+
+    while (OpenList.Num() > 0)
+    {
+        // 1. 从开放列表中找到 FCost 最小的节点（替代优先队列）
+        FGridNode* CurrentNode = nullptr;
+        float MinFCost = TNumericLimits<float>::Max();
+        for (FGridNode* Node : OpenList)
         {
-            Neighbors.Add(FIntPoint(NewX, NewY));
+            if (Node->GetFCost() < MinFCost)
+            {
+                MinFCost = Node->GetFCost();
+                CurrentNode = Node;
+            }
+        }
+
+        if (!CurrentNode) break; // 无可用节点，退出
+
+        // 2. 将当前节点移出开放列表，加入关闭列表
+        OpenList.Remove(CurrentNode);
+        ClosedList.Add(CurrentNode);
+
+        // 3. 到达终点，回溯生成路径
+        if (CurrentNode == EndNode)
+        {
+            FGridNode* PathNode = EndNode;
+            while (PathNode != nullptr)
+            {
+                Path.Insert(PathNode->WorldLocation, 0);
+                PathNode = PathNode->ParentNode;
+            }
+            return Path;
+        }
+
+        // 4. 处理邻居节点
+        TArray<FGridNode*> Neighbors = GetNeighborNodes(CurrentNode);
+        for (FGridNode* Neighbor : Neighbors)
+        {
+            // 跳过不可走或已处理的节点
+            if (Neighbor->bIsBlocked || ClosedList.Contains(Neighbor))
+                continue;
+
+            // 计算从当前节点到邻居的成本
+            float TentativeGCost = CurrentNode->GCost +
+                FVector::Dist(CurrentNode->WorldLocation, Neighbor->WorldLocation) * Neighbor->Cost;
+
+            // 如果是更优路径，更新邻居节点
+            if (TentativeGCost < Neighbor->GCost || !OpenList.Contains(Neighbor))
+            {
+                Neighbor->GCost = TentativeGCost;
+                Neighbor->HCost = CalculateHCost(Neighbor->X, Neighbor->Y, EndX, EndY);
+                Neighbor->ParentNode = CurrentNode;
+
+                // 未在开放列表则添加
+                if (!OpenList.Contains(Neighbor))
+                {
+                    OpenList.Add(Neighbor);
+                }
+            }
         }
     }
+
+    // 找不到路径
+    UE_LOG(LogTemp, Warning, TEXT("No path found!"));
+    return Path;
+}
+
+void AGridManager::LoadLevelData(ULevelDataAsset* NewLevelData)
+{
+    if (!NewLevelData) return;
+
+    CurrentLevelData = NewLevelData;
+    GenerateGridFromConfig(NewLevelData);
+
+    // 绘制调试网格
+    DrawDebugGrid();
+
+    UE_LOG(LogTemp, Log, TEXT("Loaded level data: Grid %dx%d, Cell size: %f"),
+        GridWidth, GridHeight, CellSize);
+}
+
+bool AGridManager::IsValidCoordinate(int32 X, int32 Y) const
+{
+    return X >= 0 && X < GridWidth&& Y >= 0 && Y < GridHeight;
+}
+
+TArray<FGridNode*> AGridManager::GetNeighborNodes(FGridNode* CurrentNode)
+{
+    TArray<FGridNode*> Neighbors;
+
+    // 检查8个方向的邻居（如果需要4方向寻路可以注释掉对角线方向）
+    for (int32 YOffset = -1; YOffset <= 1; YOffset++)
+    {
+        for (int32 XOffset = -1; XOffset <= 1; XOffset++)
+        {
+            // 跳过当前节点
+            if (XOffset == 0 && YOffset == 0)
+                continue;
+
+            int32 CheckX = CurrentNode->X + XOffset;
+            int32 CheckY = CurrentNode->Y + YOffset;
+
+            if (IsValidCoordinate(CheckX, CheckY))
+            {
+                Neighbors.Add(&GridNodes[CheckY * GridWidth + CheckX]);
+            }
+        }
+    }
+
     return Neighbors;
 }
 
-/**
- * 优化路径（移除冗余节点，使路径更平滑）
- * 原理：当连续三个点在同一直线上时，中间点可省略
- * @param RawPath 原始路径
- */
-void AGridManager::OptimizePath(TArray<FIntPoint>& RawPath)
+float AGridManager::CalculateHCost(int32 X, int32 Y, int32 TargetX, int32 TargetY)
 {
-    // 路径点太少无需优化
-    if (RawPath.Num() <= 2) return;
+    // 使用曼哈顿距离作为启发式函数
+    int32 DeltaX = FMath::Abs(X - TargetX);
+    int32 DeltaY = FMath::Abs(Y - TargetY);
+    return (DeltaX + DeltaY) * 10.0f; // 乘以格子大小相关的系数
+}
 
-    TArray<FIntPoint> Optimized;
-    Optimized.Add(RawPath[0]);  // 添加起点
-    FIntPoint PrevDir = RawPath[1] - RawPath[0];  // 初始方向
-
-    // 遍历原始路径，保留方向改变的点
-    for (int32 i = 2; i < RawPath.Num(); i++)
+void AGridManager::ResetPathfindingData()
+{
+    for (auto& Node : GridNodes)
     {
-        FIntPoint CurrentDir = RawPath[i] - RawPath[i - 1];
-        // 方向改变时，保留前一个点
-        if (CurrentDir != PrevDir)
+        Node.GCost = 0;
+        Node.HCost = 0;
+        Node.ParentNode = nullptr;
+    }
+}
+
+void AGridManager::GenerateGridFromConfig(ULevelDataAsset* LevelData)
+{
+    GridWidth = LevelData->GridWidth;
+    GridHeight = LevelData->GridHeight;
+    CellSize = LevelData->CellSize;
+    GridNodes.Empty(GridWidth * GridHeight);
+
+    // 初始化网格
+    for (int32 Y = 0; Y < GridHeight; Y++)
+    {
+        for (int32 X = 0; X < GridWidth; X++)
         {
-            Optimized.Add(RawPath[i - 1]);
-            PrevDir = CurrentDir;
+            FGridNode Node;
+            Node.X = X;
+            Node.Y = Y;
+            Node.WorldLocation = GridToWorld(X, Y);
+            Node.bIsBlocked = false;
+            Node.OccupyingActor = nullptr;
+            Node.Cost = 1.0f;
+
+            GridNodes.Add(Node);
         }
     }
-    Optimized.Add(RawPath.Last());  // 添加终点
-    RawPath = Optimized;  // 更新为优化后的路径
+
+    // 应用关卡配置
+    for (const auto& GridConfig : LevelData->GridConfigurations)
+    {
+        SetTileBlocked(GridConfig.X, GridConfig.Y, GridConfig.bIsBlocked);
+
+        // 如果配置了建筑类型，生成建筑
+        if (GridConfig.BuildingClass)
+        {
+            FVector SpawnLocation = GridToWorld(GridConfig.X, GridConfig.Y);
+            SpawnLocation.Z += 50.0f; // 稍微抬高避免碰撞
+            AActor* NewBuilding = GetWorld()->SpawnActor<AActor>(
+                GridConfig.BuildingClass,
+                SpawnLocation,
+                FRotator::ZeroRotator
+                );
+
+            if (NewBuilding)
+            {
+                // 更新格子的占据者
+                int32 Index = GridConfig.Y * GridWidth + GridConfig.X;
+                if (Index >= 0 && Index < GridNodes.Num())
+                {
+                    GridNodes[Index].OccupyingActor = NewBuilding;
+                }
+            }
+        }
+    }
+}
+
+void AGridManager::DrawDebugGrid()
+{
+#if WITH_EDITOR
+    for (int32 Y = 0; Y < GridHeight; Y++)
+    {
+        for (int32 X = 0; X < GridWidth; X++)
+        {
+            FVector WorldLoc = GridToWorld(X, Y);
+            FVector BoxExtent(CellSize / 2.0f - 1.0f, CellSize / 2.0f - 1.0f, 50.0f);
+
+            // 根据是否被阻挡设置不同颜色
+            FColor Color = IsTileWalkable(X, Y) ? FColor::Green : FColor::Red;
+
+            DrawDebugBox(GetWorld(), WorldLoc, BoxExtent, Color, false, 30.0f, 0, 2.0f);
+        }
+    }
+#endif
 }

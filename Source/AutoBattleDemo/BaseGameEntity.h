@@ -1,9 +1,10 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "GameFramework/Pawn.h" // 用 Pawn 比 Actor 好，方便扩展移动
+#include "GameFramework/Pawn.h"
 #include "RTSCoreTypes.h"
 #include "BaseGameEntity.generated.h"
 
+// 所有游戏实体的基类（兵种和建筑的共同父类）
 UCLASS()
 class AUTOBATTLEDEMO_API ABaseGameEntity : public APawn
 {
@@ -12,7 +13,9 @@ class AUTOBATTLEDEMO_API ABaseGameEntity : public APawn
 public:
     ABaseGameEntity();
 
-    // --- 属性 ---
+    virtual void BeginPlay() override;
+
+    // --- 核心属性 ---
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
         float MaxHealth;
 
@@ -20,19 +23,20 @@ public:
         float CurrentHealth;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-        ETeam TeamID; // 区分玩家还是敌人
+        ETeam TeamID;
 
-        // --- 接口 ---
-        // 受伤逻辑
-    virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+    // 标记：是否可以被攻击
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
+        bool bIsTargetable = true;
 
-    // 死亡逻辑（供 GameMode 监听）
+    // --- 接口 ---
+    virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
+        class AController* EventInstigator, AActor* DamageCauser) override;
+
     virtual void Die();
 
-    // 甚至可以加一个委托，当死亡时通知 GameMode 检查胜利条件
-    // FOnEntityDiedSignature OnDeath; 
-    
-    // --- 组件 ---
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-        class UStaticMeshComponent* StaticMeshComponent;
+    // 虚函数：子类可以重写死亡逻辑
+    UFUNCTION(BlueprintNativeEvent, Category = "Entity")
+        void OnDeath();
+    virtual void OnDeath_Implementation();
 };

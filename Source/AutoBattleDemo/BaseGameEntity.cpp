@@ -1,49 +1,44 @@
 #include "BaseGameEntity.h"
 #include "RTSGameMode.h"
 #include "Kismet/GameplayStatics.h"
-#include "Components/StaticMeshComponent.h"
-#include "Components/WidgetComponent.h"
-#include "Engine/CollisionProfile.h"
 
 ABaseGameEntity::ABaseGameEntity()
 {
-    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bCanEverTick = false;
 
-    // 创建根组件（场景组件）
+    // 创建根组件
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
-
-    // 创建静态网格组件（视觉表现）
-    StaticMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
-    StaticMeshComponent->SetupAttachment(RootComponent);
-
-    // 设置碰撞
-    StaticMeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    StaticMeshComponent->SetCollisionObjectType(ECC_Pawn);
-    StaticMeshComponent->SetCollisionResponseToAllChannels(ECR_Block);
-    StaticMeshComponent->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-    StaticMeshComponent->SetGenerateOverlapEvents(true);
-
 
     // 默认值
     MaxHealth = 100.0f;
     CurrentHealth = MaxHealth;
-    TeamID = ETeam::Enemy; // 默认为敌人，子类可修改
+    TeamID = ETeam::Enemy;
+    bIsTargetable = true;
 }
 
-float ABaseGameEntity::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+void ABaseGameEntity::BeginPlay()
 {
-    // 调用父类TakeDamage，获取实际伤害值
+    Super::BeginPlay();
+
+    // 确保血量初始化
+    CurrentHealth = MaxHealth;
+
+    UE_LOG(LogTemp, Log, TEXT("[Entity] %s spawned | HP: %f | Team: %d | Targetable: %d"),
+        *GetName(), CurrentHealth, (int32)TeamID, bIsTargetable);
+}
+
+float ABaseGameEntity::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent,
+    AController* EventInstigator, AActor* DamageCauser)
+{
     float ActualDamage = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
 
-    // 如果有实际伤害，处理受伤逻辑
     if (ActualDamage > 0.0f)
     {
         CurrentHealth -= ActualDamage;
 
-        // 显示受伤效果（可选）
-        // UE_LOG(LogTemp, Warning, TEXT("%s took %f damage. Current HP: %f"), *GetName(), ActualDamage, CurrentHealth);
+        UE_LOG(LogTemp, Log, TEXT("[Entity] %s took %f damage | HP: %f/%f"),
+            *GetName(), ActualDamage, CurrentHealth, MaxHealth);
 
-        // 检查是否死亡
         if (CurrentHealth <= 0.0f)
         {
             Die();
@@ -55,13 +50,22 @@ float ABaseGameEntity::TakeDamage(float DamageAmount, FDamageEvent const& Damage
 
 void ABaseGameEntity::Die()
 {
-    // 通知 GameMode (我是受害者，谁杀了我这里暂时传空)
+    UE_LOG(LogTemp, Warning, TEXT("[Entity] %s died!"), *GetName());
+
+    // 调用蓝图可重写的死亡事件
+    OnDeath();
+
+    // 通知 GameMode
     ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
     if (GM)
     {
         GM->OnActorKilled(this, nullptr);
     }
 
-    // 销毁自己
     Destroy();
+}
+
+void ABaseGameEntity::OnDeath_Implementation()
+{
+    // 默认实现为空，子类可以重写添加特效、音效等
 }

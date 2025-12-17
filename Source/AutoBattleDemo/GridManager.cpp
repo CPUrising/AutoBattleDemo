@@ -83,7 +83,7 @@ void AGridManager::DrawGridVisuals(int32 HoverX, int32 HoverY)
 // 核心：模拟优先级队列 - 找到F值最小的节点
 AGridManager::FAStarNode* AGridManager::GetLowestFNode(TArray<FAStarNode*>& Nodes)
 {
-    if (Nodes.IsEmpty()) return nullptr;
+    if (Nodes.Num() == 0) return nullptr;
 
     FAStarNode* LowestNode = Nodes[0];
     for (FAStarNode* Node : Nodes)
@@ -127,7 +127,7 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
     OpenList.Add(StartNode);
     NodeMap.Add(FIntPoint(StartX, StartY), StartNode);
 
-    while (!OpenList.IsEmpty())
+    while (!OpenList.Num() == 0)
     {
         // 取F值最小的节点（模拟优先级队列出队）
         FAStarNode* CurrentNode = GetLowestFNode(OpenList);

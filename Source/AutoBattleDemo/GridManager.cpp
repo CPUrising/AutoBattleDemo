@@ -80,7 +80,7 @@ void AGridManager::DrawGridVisuals(int32 HoverX, int32 HoverY)
     }
 }
 
-// ºËĞÄ£ºÄ£ÄâÓÅÏÈ¼¶¶ÓÁĞ - ÕÒµ½FÖµ×îĞ¡µÄ½Úµã
+// æ ¸å¿ƒï¼šæ¨¡æ‹Ÿä¼˜å…ˆçº§é˜Ÿåˆ— - æ‰¾åˆ°Få€¼æœ€å°çš„èŠ‚ç‚¹
 AGridManager::FAStarNode* AGridManager::GetLowestFNode(TArray<FAStarNode*>& Nodes)
 {
     if (Nodes.Num() == 0) return nullptr;
@@ -96,32 +96,32 @@ AGridManager::FAStarNode* AGridManager::GetLowestFNode(TArray<FAStarNode*>& Node
     return LowestNode;
 }
 
-// ĞŞÕıºóµÄFindPath£¨ÎŞTPriorityQueueÒÀÀµ£©
+// ä¿®æ­£åçš„FindPathï¼ˆæ— TPriorityQueueä¾èµ–ï¼‰
 TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVector& EndWorldLoc)
 {
     TArray<FVector> Path;
     int32 StartX, StartY, EndX, EndY;
 
-    // ×ø±ê×ª»»£¨·Ç¾²Ì¬µ÷ÓÃ£©
+    // åæ ‡è½¬æ¢ï¼ˆéé™æ€è°ƒç”¨ï¼‰
     if (!WorldToGrid(StartWorldLoc, StartX, StartY) || !WorldToGrid(EndWorldLoc, EndX, EndY))
     {
         UE_LOG(LogTemp, Warning, TEXT("Start/End out of grid bounds"));
         return Path;
     }
 
-    // ÖÕµã²»¿ÉĞĞ×ßÔò·µ»Ø¿Õ
+    // ç»ˆç‚¹ä¸å¯è¡Œèµ°åˆ™è¿”å›ç©º
     if (!IsTileWalkable(EndX, EndY))
     {
         UE_LOG(LogTemp, Warning, TEXT("End tile is blocked"));
         return Path;
     }
 
-    // ³õÊ¼»¯OpenList£¨TArrayÌæ´úÓÅÏÈ¼¶¶ÓÁĞ£©¡¢ClosedList¡¢½ÚµãÓ³Éä
+    // åˆå§‹åŒ–OpenListï¼ˆTArrayæ›¿ä»£ä¼˜å…ˆçº§é˜Ÿåˆ—ï¼‰ã€ClosedListã€èŠ‚ç‚¹æ˜ å°„
     TArray<FAStarNode*> OpenList;
     TSet<FIntPoint> ClosedList;
     TMap<FIntPoint, FAStarNode*> NodeMap;
 
-    // ´´½¨Æğµã½Úµã
+    // åˆ›å»ºèµ·ç‚¹èŠ‚ç‚¹
     FAStarNode* StartNode = new FAStarNode(StartX, StartY);
     StartNode->H = GetHeuristicCost(StartX, StartY, EndX, EndY);
     OpenList.Add(StartNode);
@@ -129,20 +129,20 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
 
     while (!OpenList.Num() == 0)
     {
-        // È¡FÖµ×îĞ¡µÄ½Úµã£¨Ä£ÄâÓÅÏÈ¼¶¶ÓÁĞ³ö¶Ó£©
+        // å–Få€¼æœ€å°çš„èŠ‚ç‚¹ï¼ˆæ¨¡æ‹Ÿä¼˜å…ˆçº§é˜Ÿåˆ—å‡ºé˜Ÿï¼‰
         FAStarNode* CurrentNode = GetLowestFNode(OpenList);
-        OpenList.Remove(CurrentNode); // ´ÓOpenListÒÆ³ı
+        OpenList.Remove(CurrentNode); // ä»OpenListç§»é™¤
         FIntPoint CurrentPos(CurrentNode->X, CurrentNode->Y);
 
-        // ÒÑ´¦Àí¹ıÔòÌø¹ı
+        // å·²å¤„ç†è¿‡åˆ™è·³è¿‡
         if (ClosedList.Contains(CurrentPos))
         {
-            delete CurrentNode; // ±ÜÃâÄÚ´æĞ¹Â©
+            delete CurrentNode; // é¿å…å†…å­˜æ³„æ¼
             continue;
         }
         ClosedList.Add(CurrentPos);
 
-        // µ½´ïÖÕµã£º»ØËİÂ·¾¶
+        // åˆ°è¾¾ç»ˆç‚¹ï¼šå›æº¯è·¯å¾„
         if (CurrentNode->X == EndX && CurrentNode->Y == EndY)
         {
             TArray<FIntPoint> RawPath;
@@ -153,25 +153,25 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
                 TempNode = TempNode->Parent;
             }
 
-            // Â·¾¶ÓÅ»¯ + ×ª»»ÎªÊÀ½ç×ø±ê
+            // è·¯å¾„ä¼˜åŒ– + è½¬æ¢ä¸ºä¸–ç•Œåæ ‡
             OptimizePath(RawPath);
             for (const FIntPoint& Point : RawPath)
             {
                 Path.Add(GridToWorld(Point.X, Point.Y));
             }
 
-            // ÇåÀíËùÓĞ¶¯Ì¬·ÖÅäµÄ½Úµã
+            // æ¸…ç†æ‰€æœ‰åŠ¨æ€åˆ†é…çš„èŠ‚ç‚¹
             for (auto& Pair : NodeMap) delete Pair.Value;
             return Path;
         }
 
-        // ´¦ÀíÁÚ¾Ó½Úµã
+        // å¤„ç†é‚»å±…èŠ‚ç‚¹
         TArray<FIntPoint> Neighbors = GetNeighborNodes(CurrentNode->X, CurrentNode->Y);
         for (const FIntPoint& NeighborPos : Neighbors)
         {
             if (ClosedList.Contains(NeighborPos)) continue;
 
-            // ¼ÆËãÒÆ¶¯³É±¾£¨¸ñ×Ó³É±¾ * ¾àÀë£©
+            // è®¡ç®—ç§»åŠ¨æˆæœ¬ï¼ˆæ ¼å­æˆæœ¬ * è·ç¦»ï¼‰
             float MoveCost = FVector::Dist(
                 GridToWorld(CurrentNode->X, CurrentNode->Y),
                 GridToWorld(NeighborPos.X, NeighborPos.Y)
@@ -180,11 +180,11 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
             float NewGCost = CurrentNode->G + MoveCost;
             FAStarNode* NeighborNode = nullptr;
 
-            // ½ÚµãÒÑ´æÔÚÔò¸´ÓÃ£¬·ñÔòĞÂ½¨
+            // èŠ‚ç‚¹å·²å­˜åœ¨åˆ™å¤ç”¨ï¼Œå¦åˆ™æ–°å»º
             if (NodeMap.Contains(NeighborPos))
             {
                 NeighborNode = NodeMap[NeighborPos];
-                if (NewGCost >= NeighborNode->G) continue; // ³É±¾¸ü¸ßÔòÌø¹ı
+                if (NewGCost >= NeighborNode->G) continue; // æˆæœ¬æ›´é«˜åˆ™è·³è¿‡
             }
             else
             {
@@ -192,12 +192,12 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
                 NodeMap.Add(NeighborPos, NeighborNode);
             }
 
-            // ¸üĞÂ½ÚµãĞÅÏ¢
+            // æ›´æ–°èŠ‚ç‚¹ä¿¡æ¯
             NeighborNode->G = NewGCost;
             NeighborNode->H = GetHeuristicCost(NeighborPos.X, NeighborPos.Y, EndX, EndY);
             NeighborNode->Parent = CurrentNode;
 
-            // ¼ÓÈëOpenList£¨Î´´æÔÚÔòÌí¼Ó£©
+            // åŠ å…¥OpenListï¼ˆæœªå­˜åœ¨åˆ™æ·»åŠ ï¼‰
             if (!OpenList.Contains(NeighborNode))
             {
                 OpenList.Add(NeighborNode);
@@ -205,13 +205,13 @@ TArray<FVector> AGridManager::FindPath(const FVector& StartWorldLoc, const FVect
         }
     }
 
-    // Î´ÕÒµ½Â·¾¶£ºÇåÀíÄÚ´æ
+    // æœªæ‰¾åˆ°è·¯å¾„ï¼šæ¸…ç†å†…å­˜
     for (auto& Pair : NodeMap) delete Pair.Value;
     UE_LOG(LogTemp, Warning, TEXT("No path found"));
     return Path;
 }
 
-// ÆäÓàº¯Êı£¨SetTileBlocked/GridToWorld/WorlToGridµÈ£©±£³Ö²»±ä
+// å…¶ä½™å‡½æ•°ï¼ˆSetTileBlocked/GridToWorld/WorlToGridç­‰ï¼‰ä¿æŒä¸å˜
 void AGridManager::SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked)
 {
     if (!IsTileValid(GridX, GridY)) return;
@@ -262,21 +262,21 @@ bool AGridManager::IsTileWalkable(int32 X, int32 Y)
 
 float AGridManager::GetHeuristicCost(int32 X1, int32 Y1, int32 X2, int32 Y2) const
 {
-    // Âü¹ş¶Ù¾àÀë£¨ÊÊºÏËÄ·½ÏòÒÆ¶¯£©
+    // æ›¼å“ˆé¡¿è·ç¦»ï¼ˆé€‚åˆå››æ–¹å‘ç§»åŠ¨ï¼‰
     return FMath::Abs(X1 - X2) + FMath::Abs(Y1 - Y2);
 }
 
 TArray<FIntPoint> AGridManager::GetNeighborNodes(int32 X, int32 Y) const
 {
     TArray<FIntPoint> Neighbors;
-    // ËÄ·½Ïò£¨ÉÏÏÂ×óÓÒ£©
+    // å››æ–¹å‘ï¼ˆä¸Šä¸‹å·¦å³ï¼‰
     const int32 Directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
 
     for (const auto& Dir : Directions)
     {
         int32 NewX = X + Dir[0];
         int32 NewY = Y + Dir[1];
-        // ½öÌí¼ÓÓĞĞ§ÇÒ¿ÉĞĞ×ßµÄÁÚ¾Ó
+        // ä»…æ·»åŠ æœ‰æ•ˆä¸”å¯è¡Œèµ°çš„é‚»å±…
         if (IsTileValid(NewX, NewY) && !GridNodes[NewY * GridWidthCount + NewX].bIsBlocked)
         {
             Neighbors.Add(FIntPoint(NewX, NewY));
@@ -296,7 +296,7 @@ void AGridManager::OptimizePath(TArray<FIntPoint>& RawPath)
     for (int32 i = 2; i < RawPath.Num(); i++)
     {
         FIntPoint CurrentDir = RawPath[i] - RawPath[i - 1];
-        // ·½Ïò±ä»¯Ê±±£Áô½Úµã
+        // æ–¹å‘å˜åŒ–æ—¶ä¿ç•™èŠ‚ç‚¹
         if (CurrentDir != PrevDir)
         {
             Optimized.Add(RawPath[i - 1]);

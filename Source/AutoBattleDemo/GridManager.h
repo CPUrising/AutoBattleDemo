@@ -53,30 +53,30 @@ public:
         void DrawGridVisuals(int32 HoverX, int32 HoverY);
 
 private:
-    // A*Ëã·¨½Úµã£¨´¿ÄÚ²¿Ê¹ÓÃ£¬ÎŞĞèUSTRUCT£©
+    // A*ç®—æ³•èŠ‚ç‚¹ï¼ˆçº¯å†…éƒ¨ä½¿ç”¨ï¼Œæ— éœ€USTRUCTï¼‰
     struct FAStarNode
     {
         int32 X;
         int32 Y;
-        float G; // Æğµãµ½µ±Ç°½Úµã³É±¾
-        float H; // Ô¤¹Àµ½ÖÕµã³É±¾
+        float G; // èµ·ç‚¹åˆ°å½“å‰èŠ‚ç‚¹æˆæœ¬
+        float H; // é¢„ä¼°åˆ°ç»ˆç‚¹æˆæœ¬
         FAStarNode* Parent;
 
-        // ¼ÆËã×Ü³É±¾
+        // è®¡ç®—æ€»æˆæœ¬
         float F() const { return G + H; }
         FAStarNode(int32 InX, int32 InY) : X(InX), Y(InY), G(0), H(0), Parent(nullptr) {}
     };
 
-    // ¹¤¾ßº¯Êı£º´ÓTArrayÖĞÕÒµ½FÖµ×îĞ¡µÄ½Úµã£¨Ä£ÄâÓÅÏÈ¼¶¶ÓÁĞ£©
+    // å·¥å…·å‡½æ•°ï¼šä»TArrayä¸­æ‰¾åˆ°Få€¼æœ€å°çš„èŠ‚ç‚¹ï¼ˆæ¨¡æ‹Ÿä¼˜å…ˆçº§é˜Ÿåˆ—ï¼‰
     FAStarNode* GetLowestFNode(TArray<FAStarNode*>& Nodes);
 
-    // ºËĞÄ¸¨Öúº¯Êı
+    // æ ¸å¿ƒè¾…åŠ©å‡½æ•°
     bool IsTileValid(int32 GridX, int32 GridY) const;
     float GetHeuristicCost(int32 X1, int32 Y1, int32 X2, int32 Y2) const;
     TArray<FIntPoint> GetNeighborNodes(int32 X, int32 Y) const;
     void OptimizePath(TArray<FIntPoint>& RawPath);
 
-    // Íø¸ñÊı¾İ
+    // ç½‘æ ¼æ•°æ®
     UPROPERTY()
         TArray<FGridNode> GridNodes;
     UPROPERTY()

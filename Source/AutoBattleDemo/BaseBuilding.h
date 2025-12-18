@@ -1,38 +1,63 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
-
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
+#include "BaseGameEntity.h"
+#include "RTSCoreTypes.h"
 #include "BaseBuilding.generated.h"
 
+
 UCLASS()
-class AUTOBATTLEDEMO_API ABaseBuilding : public AActor
+class AUTOBATTLEDEMO_API ABaseBuilding : public ABaseGameEntity
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	// 构造函数
-	ABaseBuilding();
+    ABaseBuilding();
 
-	// 覆盖引擎自带的点击事件处理函数
-	virtual void NotifyActorOnClicked(FKey ButtonPressed = EKeys::LeftMouseButton) override;
+    virtual void BeginPlay() override;
+    virtual void Tick(float DeltaTime) override;
+
+    // --- 建筑属性 ---
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Building")
+        EBuildingType BuildingType;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Building")
+        int32 BuildingLevel;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Building")
+        int32 MaxLevel;
+
+    // --- 网格坐标（关键！供炸弹人使用） ---
+    // 这个建筑在成员A的GridManager中占据的网格坐标
+    // 成员C在生成建筑时需要设置这两个值
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grid")
+        int32 GridX;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grid")
+        int32 GridY;
+
+    // --- 升级系统 ---
+    UFUNCTION(BlueprintCallable, Category = "Building")
+        void LevelUp();
+
+    UFUNCTION(BlueprintCallable, Category = "Building")
+        void GetUpgradeCost(int32& OutGold, int32& OutElixir);
+
+    UFUNCTION(BlueprintCallable, Category = "Building")
+        bool CanUpgrade() const;
+
+    // --- 点击交互 ---
+    virtual void NotifyActorOnClicked(FKey ButtonPressed) override;
+
+    // --- 组件 ---
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+        class UStaticMeshComponent* MeshComp;
 
 protected:
-	// 游戏开始时调用
-	virtual void BeginPlay() override;
+    virtual void ApplyLevelUpBonus();
 
-public:
-	// 每帧调用
-	virtual void Tick(float DeltaTime) override;
+    UPROPERTY(EditAnywhere, Category = "Building|Upgrade")
+        int32 BaseUpgradeGoldCost;
 
-	// --- 核心变量声明 ---
-
-	// 可视化组件（模型）
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-		class UStaticMeshComponent* MeshComp;
-
-	// 血量
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
-		float MaxHealth;
+    UPROPERTY(EditAnywhere, Category = "Building|Upgrade")
+        int32 BaseUpgradeElixirCost;
 };

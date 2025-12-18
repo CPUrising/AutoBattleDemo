@@ -1,35 +1,50 @@
 #include "BaseUnit.h"
+#include "BaseBuilding.h"
 #include "GridManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
 #include "DrawDebugHelpers.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
 
 ABaseUnit::ABaseUnit()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    // Ä¬ÈÏÊıÖµ
+    // é’æ¶˜ç¼“é‘³è·ºæ³­æµ£ï¿½
+    CapsuleComp = CreateDefaultSubobject<UCapsuleComponent>(TEXT("CapsuleComp"));
+    CapsuleComp->SetupAttachment(RootComponent);
+    CapsuleComp->InitCapsuleSize(40.0f, 90.0f);
+    CapsuleComp->SetCollisionProfileName(TEXT("Pawn"));
+
+    // é’æ¶˜ç¼“å¦¯â€³ç€·
+    MeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComp"));
+    MeshComp->SetupAttachment(CapsuleComp);
+
+    // æ¦›æ¨¿î…»çç‚´ï¿½ï¿½
     MaxHealth = 100.0f;
-    AttackRange = 150.0f; // ½üÕ½¾àÀë
+    AttackRange = 150.0f;
     Damage = 10.0f;
     MoveSpeed = 300.0f;
     AttackInterval = 1.0f;
 
+    UnitType = EUnitType::Barbarian; // æ¦›æ¨¿î…»é–²åº¤æ´°æµœï¿½
     CurrentState = EUnitState::Idle;
     LastAttackTime = 0.0f;
     CurrentPathIndex = 0;
     CurrentTarget = nullptr;
     GridManagerRef = nullptr;
-    bIsActive = false; // Ä¬ÈÏ²»¼¤»î£¬µÈ´ı GameMode µ÷ÓÃ
+    bIsActive = false;
 
-    TeamID = ETeam::Player; // Ê¿±øÄ¬ÈÏÊÇÍæ¼Ò·½
-    bIsTargetable = false; // Ê¿±ø²»ÊÇ½¨Öş£¬Í¨³£²»±»·ÀÓùËşÖ÷¶¯¹¥»÷£¨¿ÉÑ¡£©
+    TeamID = ETeam::Player;
+    bIsTargetable = false;
 }
 
 void ABaseUnit::BeginPlay()
 {
     Super::BeginPlay();
-    // »ñÈ¡ GridManager
+
+    // é‘¾å³°å½‡ GridManager
     for (TActorIterator<AGridManager> It(GetWorld()); It; ++It)
     {
         GridManagerRef = *It;
@@ -38,7 +53,7 @@ void ABaseUnit::BeginPlay()
 
     if (!GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("BaseUnit ÕÒ²»µ½ GridManager£¡"));
+        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot find GridManager!"), *GetName());
     }
 }
 
@@ -46,26 +61,16 @@ void ABaseUnit::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    // Èç¹û AI Î´¼¤»î£¨±¸Õ½½×¶Î£©£¬²»Ö´ĞĞÈÎºÎÂß¼­
-    if (!bIsActive)
-    {
-        return;
-    }
+    if (!bIsActive) return;
 
-    // ×´Ì¬»ú
     switch (CurrentState)
     {
     case EUnitState::Idle:
-        // Èç¹ûÃ»Ä¿±ê£¬ÕÒÄ¿±ê
         if (!CurrentTarget)
         {
-            CurrentTarget = FindClosestEnemyBuilding(); // Ñ°ÕÒ½¨ÖşÄ¿±ê
+            CurrentTarget = FindClosestEnemyBuilding();
             if (CurrentTarget)
             {
-                UE_LOG(LogTemp, Log, TEXT("[Unit] %s found target building: %s"),
-                    *GetName(), *CurrentTarget->GetName());
-
-                // ¼ì²éÄ¿±êÊÇ·ñÔÚ¹¥»÷·¶Î§ÄÚ
                 float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
                 if (Distance <= AttackRange)
                 {
@@ -90,18 +95,17 @@ void ABaseUnit::Tick(float DeltaTime)
             }
             else
             {
-                // Ã»ÓĞÕÒµ½ÈÎºÎµĞ·½½¨Öş£¨¿ÉÄÜÒÑ¾­È«²¿´İ»Ù£©
+                // æ²¡æœ‰æ‰¾åˆ°ä»»ä½•æ•Œæ–¹å»ºç­‘ï¼ˆå¯èƒ½å·²ç»å…¨éƒ¨æ‘§æ¯ï¼‰
                 UE_LOG(LogTemp, Warning, TEXT("[Unit] %s found NO enemy buildings!"), *GetName());
             }
         }
         else
         {
-            // ÒÑ¾­ÓĞÄ¿±ê£¬¼ì²éÄ¿±êÊÇ·ñÓĞĞ§
             ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
             if (!TargetEntity || TargetEntity->CurrentHealth <= 0 || CurrentTarget->IsPendingKill())
             {
                 UE_LOG(LogTemp, Log, TEXT("[Unit] %s target destroyed, searching for new target"), *GetName());
-                CurrentTarget = nullptr; // Ä¿±êÊ§Ğ§£¬ÖØĞÂÑ°ÕÒ
+                CurrentTarget = nullptr; // ç›®æ ‡å¤±æ•ˆï¼Œé‡æ–°å¯»æ‰¾
             }
         }
         break;
@@ -111,7 +115,6 @@ void ABaseUnit::Tick(float DeltaTime)
         {
             MoveAlongPath(DeltaTime);
 
-            // ÒÆ¶¯¹ı³ÌÖĞ¼ì²éÊÇ·ñ½øÈë¹¥»÷·¶Î§
             if (CurrentTarget)
             {
                 float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
@@ -119,12 +122,10 @@ void ABaseUnit::Tick(float DeltaTime)
                 {
                     CurrentState = EUnitState::Attacking;
                     PathPoints.Empty();
-                    UE_LOG(LogTemp, Warning, TEXT("[Unit] %s reached attack range!"), *GetName());
                 }
             }
             else
             {
-                // ÒÆ¶¯Í¾ÖĞÄ¿±ê±»´İ»Ù
                 CurrentState = EUnitState::Idle;
                 PathPoints.Empty();
             }
@@ -152,7 +153,6 @@ void ABaseUnit::SetUnitActive(bool bActive)
     }
     else
     {
-        // Í£Ö¹ËùÓĞĞĞ¶¯£¨»Øµ½±¸Õ½×´Ì¬£©
         CurrentState = EUnitState::Idle;
         CurrentTarget = nullptr;
         PathPoints.Empty();
@@ -165,52 +165,31 @@ AActor* ABaseUnit::FindClosestEnemyBuilding()
     AActor* ClosestBuilding = nullptr;
     float ClosestDistance = FLT_MAX;
 
-    // »ñÈ¡ËùÓĞ BaseGameEntity£¨°üÀ¨½¨ÖşºÍÊ¿±ø£©
-    TArray<AActor*> AllEntities;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseGameEntity::StaticClass(), AllEntities);
+    TArray<AActor*> AllBuildings;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
 
-    UE_LOG(LogTemp, Log, TEXT("[Unit] %s searching among %d entities"),
-        *GetName(), AllEntities.Num());
-
-    for (AActor* Actor : AllEntities)
+    for (AActor* Actor : AllBuildings)
     {
-        ABaseGameEntity* Entity = Cast<ABaseGameEntity>(Actor);
+        ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
 
-        // É¸Ñ¡Ìõ¼ş£º
-        // 1. ²»ÊÇ×Ô¼º
-        // 2. µĞ¶ÔÕóÓª
-        // 3. ¿ÉÒÔ±»¹¥»÷£¨½¨Öş£©
-        // 4. ´æ»î
-        // 5. ²»ÊÇÊ¿±ø£¨Í¨¹ı¼ì²éÊÇ·ñÊÇ ABaseUnit£©
-        if (Entity && Entity != this &&
-            Entity->TeamID != this->TeamID &&
-            Entity->bIsTargetable &&
-            Entity->CurrentHealth > 0 &&
-            !Entity->IsA(ABaseUnit::StaticClass())) // ¹Ø¼ü£ºÅÅ³ıÊ¿±ø
+        if (Building &&
+            Building->TeamID != this->TeamID &&
+            Building->bIsTargetable &&
+            Building->CurrentHealth > 0)
         {
-            float Distance = FVector::Dist(GetActorLocation(), Entity->GetActorLocation());
+            float Distance = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
 
-            // ÓÅÏÈ¹¥»÷¹¥»÷·¶Î§ÄÚµÄ½¨Öş
             if (Distance <= AttackRange)
             {
-                UE_LOG(LogTemp, Log, TEXT("[Unit] %s found building in attack range: %s"),
-                    *GetName(), *Entity->GetName());
-                return Entity;
+                return Building;
             }
 
-            // ·ñÔòÑ¡Ôñ×î½üµÄ½¨Öş
             if (Distance < ClosestDistance)
             {
                 ClosestDistance = Distance;
-                ClosestBuilding = Entity;
+                ClosestBuilding = Building;
             }
         }
-    }
-
-    if (ClosestBuilding)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s closest building: %s (Distance: %f)"),
-            *GetName(), *ClosestBuilding->GetName(), ClosestDistance);
     }
 
     return ClosestBuilding;
@@ -218,62 +197,32 @@ AActor* ABaseUnit::FindClosestEnemyBuilding()
 
 void ABaseUnit::RequestPathToTarget()
 {
-    if (!CurrentTarget)
+    if (!CurrentTarget || !GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Unit] %s RequestPath called with no target!"), *GetName());
+        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot request path!"), *GetName());
         return;
     }
 
-    // »ñÈ¡ GridManager
-    if (!GridManagerRef)
-    {
-        TArray<AActor*> FoundActors;
-        UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGridManager::StaticClass(), FoundActors);
+    FVector StartPos = GetActorLocation();
+    FVector EndPos = CurrentTarget->GetActorLocation();
 
-        if (FoundActors.Num() > 0)
+    PathPoints = GridManagerRef->FindPath(StartPos, EndPos);
+    CurrentPathIndex = 0;
+
+    UE_LOG(LogTemp, Log, TEXT("[Unit] %s path: %d waypoints"), *GetName(), PathPoints.Num());
+
+    if (PathPoints.Num() > 1)
+    {
+        for (int32 i = 0; i < PathPoints.Num() - 1; i++)
         {
-            GridManagerRef = Cast<AGridManager>(FoundActors[0]);
-            UE_LOG(LogTemp, Warning, TEXT("[Unit] %s found GridManager!"), *GetName());
-        }
-        else
-        {
-            UE_LOG(LogTemp, Error, TEXT("[Unit] %s CANNOT FIND GridManager!"), *GetName());
-            return;
+            DrawDebugLine(GetWorld(), PathPoints[i], PathPoints[i + 1],
+                FColor::Cyan, false, 3.0f, 0, 3.0f);
         }
     }
 
-    if (GridManagerRef)
+    if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 100.0f)
     {
-        FVector StartPos = GetActorLocation();
-        FVector EndPos = CurrentTarget->GetActorLocation();
-
-        UE_LOG(LogTemp, Log, TEXT("[Unit] %s pathfinding: %s -> %s"),
-            *GetName(), *StartPos.ToString(), *EndPos.ToString());
-
-        PathPoints = GridManagerRef->FindPath(StartPos, EndPos);
-
-        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s path result: %d waypoints"),
-            *GetName(), PathPoints.Num());
-
-        // µ÷ÊÔ£ºÏÔÊ¾Â·¾¶
-        if (PathPoints.Num() > 1)
-        {
-            for (int32 i = 0; i < PathPoints.Num() - 1; i++)
-            {
-                DrawDebugLine(GetWorld(), PathPoints[i], PathPoints[i + 1],
-                    FColor::Cyan, false, 5.0f, 0, 5.0f);
-            }
-            DrawDebugSphere(GetWorld(), PathPoints[0], 30.0f, 12, FColor::Blue, false, 5.0f);
-            DrawDebugSphere(GetWorld(), PathPoints.Last(), 30.0f, 12, FColor::Red, false, 5.0f);
-        }
-
-        CurrentPathIndex = 0;
-
-        // Èç¹ûÆğµã¾ÍÊÇµ±Ç°Î»ÖÃ£¬Ìø¹ıµÚÒ»¸öµã
-        if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 100.0f)
-        {
-            CurrentPathIndex = 1;
-        }
+        CurrentPathIndex = 1;
     }
 }
 
@@ -297,11 +246,9 @@ void ABaseUnit::MoveAlongPath(float DeltaTime)
     FVector CurrentLocation = GetActorLocation();
     FVector Direction = (TargetPoint - CurrentLocation).GetSafeNormal();
 
-    // ÒÆ¶¯
     FVector NewLocation = CurrentLocation + Direction * MoveSpeed * DeltaTime;
     SetActorLocation(NewLocation);
 
-    // ÃæÏòÒÆ¶¯·½Ïò
     if (!Direction.IsNearlyZero())
     {
         FRotator NewRotation = Direction.Rotation();
@@ -310,15 +257,13 @@ void ABaseUnit::MoveAlongPath(float DeltaTime)
         SetActorRotation(NewRotation);
     }
 
-    // ¼ì²éÊÇ·ñµ½´ïµ±Ç°Â·¾¶µã
     float DistanceToPoint = FVector::DistSquared(NewLocation, TargetPoint);
-    if (DistanceToPoint < 100.0f) // 10cm Èİ²î
+    if (DistanceToPoint < 100.0f)
     {
         CurrentPathIndex++;
 
         if (CurrentPathIndex >= PathPoints.Num())
         {
-            // µ½´ïÂ·¾¶ÖÕµã
             if (CurrentTarget)
             {
                 float Distance = FVector::Dist(NewLocation, CurrentTarget->GetActorLocation());
@@ -329,8 +274,6 @@ void ABaseUnit::MoveAlongPath(float DeltaTime)
                 }
                 else
                 {
-                    // Ä¿±ê¿ÉÄÜÒÆ¶¯ÁË£¨½¨Öş²»»á¶¯£¬µ«ÒÔ·ÀÍòÒ»£©
-                    UE_LOG(LogTemp, Warning, TEXT("[Unit] %s reached end but target still far, re-pathing"), *GetName());
                     RequestPathToTarget();
                     if (PathPoints.Num() == 0)
                     {
@@ -363,12 +306,9 @@ void ABaseUnit::PerformAttack()
         return;
     }
 
-    // ¼ì²éÄ¿±êÊÇ·ñÔÚ¹¥»÷·¶Î§ÄÚ
     float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
     if (Distance > AttackRange)
     {
-        // Ä¿±ê³¬³ö¹¥»÷·¶Î§£¬ÖØĞÂÑ°Â·
-        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s target out of range, re-pathing"), *GetName());
         RequestPathToTarget();
         if (PathPoints.Num() > 0)
         {
@@ -377,17 +317,13 @@ void ABaseUnit::PerformAttack()
         return;
     }
 
-    // ¹¥»÷ÀäÈ´¼ì²é
     float CurrentTime = GetWorld()->GetTimeSeconds();
     if (CurrentTime - LastAttackTime >= AttackInterval)
     {
-        // Ó¦ÓÃÉËº¦
         FDamageEvent DamageEvent;
         CurrentTarget->TakeDamage(Damage, DamageEvent, nullptr, this);
-
         LastAttackTime = CurrentTime;
 
-        // ÃæÏòÄ¿±ê
         FVector Direction = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
         if (!Direction.IsNearlyZero())
         {

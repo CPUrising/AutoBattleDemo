@@ -5,6 +5,7 @@
 #include "Containers/Queue.h"
 #include "Misc/AssertionMacros.h"
 
+
 /**
  * 构造函数：初始化默认值
  */
@@ -12,6 +13,10 @@ AGridManager::AGridManager()
 {
     PrimaryActorTick.bCanEverTick = false;  // 不需要每帧更新
     bDrawDebug = true;                      // 默认开启调试绘制（开发模式）
+
+    // 创建一个根组件，否则它在场景里没有坐标（Location 全是 0）
+    USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    RootComponent = SceneRoot;
 }
 
 /**
@@ -20,6 +25,12 @@ AGridManager::AGridManager()
 void AGridManager::BeginPlay()
 {
     Super::BeginPlay();
+
+    GenerateGrid(20, 20, 100.0f);
+
+
+
+
 }
 
 /**
@@ -54,21 +65,65 @@ void AGridManager::GenerateGrid(int32 Width, int32 Height, float CellSize)
             );
             GridNodes.Add(NewNode);
 
-            // 调试绘制格子边框（仅在非编辑器世界且开启调试时）
-            if (bDrawDebug && GetWorld()->GetName() != TEXT("EditorWorld"))
-            {
-                DrawDebugBox(
-                    GetWorld(),
-                    NewNode.WorldLocation,
-                    FVector(TileSize / 2 * 0.9f),  // 稍微缩小一点避免边框重叠
-                    FColor::White,
-                    true,                           // 持续显示
-                    -1.0f,                          // 永久存在
-                    0,
-                    1.0f                            // 线宽
-                );
-            }
+            //// 调试绘制格子边框（仅在非编辑器世界且开启调试时）
+            //if (bDrawDebug && GetWorld()->GetName() != TEXT("EditorWorld"))
+            //{
+            //    DrawDebugBox(
+            //        GetWorld(),
+            //        NewNode.WorldLocation,
+            //        FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 1.0f),  // 稍微缩小一点避免边框重叠
+            //        FColor::White,
+            //        true,                           // 持续显示
+            //        -1.0f,                          // 永久存在
+            //        0,
+            //        4.0f                            // 线宽
+            //    );
+            //}
         }
+    }
+
+
+}
+
+void AGridManager::DrawGridVisuals(int32 HoverX, int32 HoverY)
+{
+    float LifeTime = GetWorld()->GetDeltaSeconds() * 2.0f;
+
+    for (const FGridNode& Node : GridNodes)
+    {
+        // 默认状态 (模拟半透明)
+        // 使用灰色代替白色
+        FColor LineColor = FColor(110, 110, 110);
+
+        // 默认线宽变细，让它退居背景
+        float LineThickness = 5.0f;
+
+        // 1. 选中状态 (高亮 + 加粗)
+        if (Node.X == HoverX && Node.Y == HoverY)
+        {
+            LineColor = FColor::Cyan; // 青色比蓝色更显眼
+            LineThickness = 10.0f;     // 选中时很粗
+        }
+        // 2. 阻挡状态 (红色 + 中粗)
+        else if (Node.bIsBlocked)
+        {
+            LineColor = FColor::Red;
+            LineThickness = 7.5f;
+        }
+
+        // 绘制
+        DrawDebugBox(
+            GetWorld(),
+            Node.WorldLocation,
+            // 普通格子稍微小一点(0.9f)，给线之间留缝隙，看着更舒服
+            // 选中格子可以稍微大一点吗？这里统一点比较好
+            FVector(TileSize / 2 * 0.90f, TileSize / 2 * 0.90f, 5.0f),
+            LineColor,
+            false,
+            LifeTime,
+            0,
+            LineThickness
+        );
     }
 }
 
@@ -216,12 +271,12 @@ void AGridManager::SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked)
         DrawDebugBox(
             GetWorld(),
             GridNodes[Index].WorldLocation,
-            FVector(TileSize / 2 * 0.9f),
+            FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 2.0f),
             bBlocked ? FColor::Red : FColor::White,  // 阻挡为红色，否则白色
             true,
             30.0f,  // 持续30秒（便于观察）
             0,
-            2.0f    // 线宽加粗
+            3.0f    // 线宽加粗
         );
     }
 }

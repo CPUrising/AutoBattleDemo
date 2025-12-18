@@ -38,6 +38,10 @@ class AUTOBATTLEDEMO_API AGridManager : public AActor
 {
     GENERATED_BODY()
 
+protected:
+    // --- 声明游戏开始函数 ---
+    virtual void BeginPlay() override;
+
 public:
     AGridManager();
     UFUNCTION(BlueprintCallable, Category = "Grid")
@@ -88,9 +92,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Grid")
         bool WorldToGrid(const FVector& WorldLoc, int32& OutGridX, int32& OutGridY) const;
 
-protected:
-    // 游戏开始时调用
-    virtual void BeginPlay() override;
+    // 每帧调用的绘制函数 ---
+    // HoverX, HoverY: 当前鼠标悬停的格子坐标 (如果没有悬停传 -1)
+    UFUNCTION(BlueprintCallable, Category = "Grid")
+        void DrawGridVisuals(int32 HoverX, int32 HoverY);
 
 private:
     /**
@@ -157,4 +162,6 @@ private:
     // 调试绘制开关（开发模式使用）
     UPROPERTY(EditAnywhere, Category = "Debug")
         bool bDrawDebug;
+
+
 };

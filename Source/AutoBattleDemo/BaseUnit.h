@@ -1,76 +1,85 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "BaseGameEntity.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "RTSCoreTypes.h"
 #include "BaseUnit.generated.h"
 
-// Ê¿±ø×´Ì¬»ú
+// å£«å…µçŠ¶æ€æœº
 UENUM()
 enum class EUnitState : uint8
 {
-    Idle,       // Õ¾×®£¨±¸Õ½½×¶Î»òÎŞÄ¿±ê£©
-    Moving,     // ÕıÔÚÑØÂ·¾¶ÒÆ¶¯
-    Attacking   // ¹¥»÷ÖĞ
+    Idle,       // ç«™æ¡©
+    Moving,     // ç§»åŠ¨ä¸­
+    Attacking   // æ”»å‡»ä¸­
 };
 
 UCLASS()
 class AUTOBATTLEDEMO_API ABaseUnit : public ABaseGameEntity
 {
     GENERATED_BODY()
+
 public:
     ABaseUnit();
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaTime) override;
 
-    // --- ¹© GameMode µ÷ÓÃ ---
-    // ÓÎÏ·¿ªÊ¼£¬¼¤»îÕ½¶· AI
+    // --- å…µç§ç±»å‹ ---
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Unit")
+        EUnitType UnitType;
+
+    // --- ä¾› GameMode è°ƒç”¨ ---
     UFUNCTION(BlueprintCallable)
         void SetUnitActive(bool bActive);
 
-    // --- ÊôĞÔ ---
-    UPROPERTY(EditAnywhere, Category = "Combat")
+    // --- æˆ˜æ–—å±æ€§ ---
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
         float AttackRange;
 
-    UPROPERTY(EditAnywhere, Category = "Combat")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
         float Damage;
 
-    UPROPERTY(EditAnywhere, Category = "Movement")
-        float MoveSpeed;
-
-    UPROPERTY(EditAnywhere, Category = "Combat")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
         float AttackInterval;
 
-protected:
-    // --- ºËĞÄÂß¼­ ---
-    // 1. Ñ°ÕÒ×î½üµÄµĞ·½½¨Öş£¨·ÀÓùËş¡¢»ùµØµÈ£©
-    AActor* FindClosestEnemyBuilding();
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+        float MoveSpeed;
 
-    // 2. ÇëÇóÂ·¾¶ (µ÷ÓÃ Member A µÄ GridManager)
+    // --- ç»„ä»¶ ---
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+        class UCapsuleComponent* CapsuleComp;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+        class UStaticMeshComponent* MeshComp;
+
+protected:
+    // --- æ ¸å¿ƒAIé€»è¾‘ï¼ˆå¯è¢«å­ç±»é‡å†™ï¼‰ ---
+
+    virtual AActor* FindClosestEnemyBuilding();
+
     void RequestPathToTarget();
 
-    // 3. ÑØÂ·¾¶ÒÆ¶¯ (Tick ÖĞÖ´ĞĞ)
     void MoveAlongPath(float DeltaTime);
 
-    // 4. Ö´ĞĞ¹¥»÷
-    void PerformAttack();
+    virtual void PerformAttack();
 
-
-private:
+    // å½“å‰çŠ¶æ€
     EUnitState CurrentState;
 
-    // »º´æµ±Ç°µÄÂ·¾¶µãÁĞ±í
+    // è·¯å¾„ç¼“å­˜
     TArray<FVector> PathPoints;
     int32 CurrentPathIndex;
 
-    // µ±Ç°Ëø¶¨µÄÄ¿±ê
+    // å½“å‰ç›®æ ‡
     UPROPERTY()
         AActor* CurrentTarget;
 
-    // ¹¥»÷¼ÆÊ±Æ÷
+    // æ”»å‡»è®¡æ—¶
     float LastAttackTime;
 
-    // ÒıÓÃ GridManager (BeginPlay »ñÈ¡)
+    // GridManager å¼•ç”¨
     class AGridManager* GridManagerRef;
 
-    // AI ÊÇ·ñ¼¤»î£¨ÓÃÓÚÇø·Ö±¸Õ½ºÍÕ½¶·½×¶Î£©
+    // AI æ¿€æ´»çŠ¶æ€
     bool bIsActive;
 };

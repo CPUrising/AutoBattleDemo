@@ -299,6 +299,7 @@ bool AGridManager::IsTileWalkable(int32 X, int32 Y)
 // 计算启发式成本（曼哈顿距离，适合四方向移动）
 float AGridManager::GetHeuristicCost(int32 X1, int32 Y1, int32 X2, int32 Y2) const
 {
+    // �����پ��루�ʺ��ķ����ƶ���
     return FMath::Abs(X1 - X2) + FMath::Abs(Y1 - Y2);
 }
 

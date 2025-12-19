@@ -3,85 +3,88 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "RTSCoreTypes.h"
-#include "BaseBuilding.h"
 #include "RTSGameMode.generated.h"
+
+// 前置声明
+class ABaseUnit;
+class ABaseBuilding;
+class ULevelDataAsset;
+class AGridManager;
 
 UCLASS()
 class AUTOBATTLEDEMO_API ARTSGameMode : public AGameModeBase
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
 public:
-	ARTSGameMode();
-	virtual void BeginPlay() override;
+    ARTSGameMode();
+    virtual void BeginPlay() override;
 
-	// --- 流程控制 API (供 UI 调用) ---
+    // --- 1. 造兵逻辑 ---
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        bool TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 GridY);
 
-	// 1. 尝试购买并放置单位 (注意：这里补全了 GridX 和 GridY 参数)
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		bool TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 GridY);
-	// 建造建筑 ---
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		bool TryBuildBuilding(EBuildingType Type, int32 Cost, int32 GridX, int32 GridY);
+    // --- 2. 造建筑逻辑 (新增) ---
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        bool TryBuildBuilding(EBuildingType Type, int32 Cost, int32 GridX, int32 GridY);
 
+    // --- 3. 战斗流程 ---
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        void StartBattlePhase();
 
-	// 2. 玩家点击“开始战斗”
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		void StartBattlePhase();
+    // 保存当前布阵并前往战斗关卡
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        void SaveAndStartBattle(FName LevelName);
 
-	// 3. 重新开始本关
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		void RestartLevel();
+    // 在战斗关卡开始时调用：生成带来的兵
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        void LoadAndSpawnUnits();
 
-	// --- 裁判逻辑 ---
+    // 重新开始本关
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        void RestartLevel();
 
-	// 4. 单位死亡时调用此函数 (这就是你刚才报错缺少的函数声明！)
-	void OnActorKilled(AActor* Victim, AActor* Killer);
-
-	// 5. 检查是否胜利
-	void CheckWinCondition();
-
-	// 保存当前布阵并前往战斗关卡
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		void SaveAndStartBattle(FName LevelName);
-
-	// 在战斗关卡开始时调用：生成带来的兵
-	UFUNCTION(BlueprintCallable, Category = "GameFlow")
-		void LoadAndSpawnUnits();
-
+    // --- 裁判逻辑 ---
+    void OnActorKilled(AActor* Victim, AActor* Killer);
+    void CheckWinCondition();
 
 protected:
-	// 当前游戏状态
-	UPROPERTY(BlueprintReadOnly, Category = "GameFlow")
-		EGameState CurrentState;
+    UPROPERTY(BlueprintReadOnly, Category = "GameFlow")
+        EGameState CurrentState;
 
-	// 引用：地图上的 GridManager
-	UPROPERTY()
-		class AGridManager* GridManager;
+    UPROPERTY()
+        class AGridManager* GridManager;
 
-	// 不同兵种的蓝图类 (用于 Spawn)
-	
+    // --- 兵种蓝图配置 (Classes|Units) ---
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
+        TSubclassOf<class ABaseUnit> BarbarianClass; // 对应 Soldier/Barbarian
 
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseUnit> SoldierClass;
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
+        TSubclassOf<class ABaseUnit> ArcherClass;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseUnit> ArcherClass;
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
+        TSubclassOf<class ABaseUnit> GiantClass;     // 新增
 
-	// 巨人与炸弹人
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseUnit> GiantClass;
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
+        TSubclassOf<class ABaseUnit> BoomerClass;    // 新增
 
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseUnit> BoomerClass;
+        // --- 建筑蓝图配置 (Classes|Buildings) ---
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
+        TSubclassOf<class ABaseBuilding> DefenseTowerClass;
 
-	// 建筑蓝图配置 ---
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseBuilding> DefenseTowerClass; // 防御塔蓝图
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
+        TSubclassOf<class ABaseBuilding> GoldMineClass;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseBuilding> GoldMineClass;     // 金矿蓝图
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
+        TSubclassOf<class ABaseBuilding> ElixirPumpClass; // 新增
 
-	UPROPERTY(EditDefaultsOnly, Category = "Classes")
-		TSubclassOf<class ABaseBuilding> HQClass; // 大本营
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
+        TSubclassOf<class ABaseBuilding> WallClass;       // 新增
+
+    UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
+        TSubclassOf<class ABaseBuilding> HQClass;         // 大本营
+
+        // --- 关卡数据 (可选，用于加载敌人配置) ---
+    UPROPERTY(EditDefaultsOnly, Category = "Level Setup")
+        ULevelDataAsset* CurrentLevelData;
 };

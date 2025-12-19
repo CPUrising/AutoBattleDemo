@@ -6,7 +6,7 @@ ABaseBuilding::ABaseBuilding()
     PrimaryActorTick.bCanEverTick = true;
 
     // 创建根组件
-    RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
+    // RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
 
     // 创建模型组件
     MeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BuildingMesh"));

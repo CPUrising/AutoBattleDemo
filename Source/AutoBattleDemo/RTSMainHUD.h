@@ -34,20 +34,30 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuyArcher;
 
-	// 新增：巨人 & 炸弹人
+	// 巨人 & 炸弹人
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuyGiant;
 
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuyBomber;
 
-	// --- 按钮：建筑 (消耗金币) ---
-	// 新增：塔 & 矿
+	// 建筑 (消耗金币) ---
+	// 塔 & 矿
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuildTower;
 
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuildMine;
+
+	// 圣水收集器
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_BuildElixir;
+
+	// 造墙按钮
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_BuildWall;
+
+
 
 	// --- 按钮：流程 ---
 	UPROPERTY(meta = (BindWidget))
@@ -67,6 +77,8 @@ protected:
 
 	UFUNCTION() void OnClickBuildTower();
 	UFUNCTION() void OnClickBuildMine();
+	UFUNCTION()	void OnClickBuildElixir();
+	UFUNCTION()	void OnClickBuildWall();
 
 	UFUNCTION() void OnClickStartBattle();
 	UFUNCTION() void OnClickRemove();

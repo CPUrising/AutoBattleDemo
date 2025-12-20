@@ -21,7 +21,7 @@ ARTSPlayerController::ARTSPlayerController()
     bIsPlacingUnit = false;
     bIsPlacingBuilding = false;
     bIsRemoving = false;
-    PendingUnitType = EUnitType::Soldier;
+    PendingUnitType = EUnitType::Barbarian;
     PendingBuildingType = EBuildingType::None;
 }
 
@@ -108,6 +108,31 @@ void ARTSPlayerController::OnSelectRemoveMode()
     if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Orange, TEXT("Remove Mode Active!"));
 }
 
+bool ARTSPlayerController::CancelCurrentAction()
+{
+    // 检查是否有正在进行的状态
+    if (bIsPlacingUnit || bIsPlacingBuilding || bIsRemoving)
+    {
+        // 1. 重置所有状态标志
+        bIsPlacingUnit = false;
+        bIsPlacingBuilding = false;
+        bIsRemoving = false;
+
+        // 2. 隐藏幽灵
+        if (PreviewGhostActor)
+        {
+            PreviewGhostActor->SetActorHiddenInGame(true);
+        }
+
+        // 3. 打印提示
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Orange, TEXT("Action Cancelled"));
+
+        return true; // 告诉调用者：我干活了
+    }
+
+    return false; // 告诉调用者：我没事干
+}
+
 void ARTSPlayerController::HandlePlacementMode(const FHitResult& Hit, AGridManager* GridManager)
 {
     int32 X, Y;
@@ -136,7 +161,8 @@ void ARTSPlayerController::HandlePlacementMode(const FHitResult& Hit, AGridManag
     else if (bIsPlacingBuilding)
     {
         int32 Cost = 200;
-        if (PendingBuildingType == EBuildingType::Resource) Cost = 150;
+        if (PendingBuildingType == EBuildingType::GoldMine) Cost = 150;
+        else if (PendingBuildingType == EBuildingType::ElixirPump) Cost = 150;
         else if (PendingBuildingType == EBuildingType::Wall) Cost = 50;
 
         bSuccess = GM->TryBuildBuilding(PendingBuildingType, Cost, X, Y);
@@ -171,14 +197,26 @@ void ARTSPlayerController::HandleRemoveMode(AActor* HitActor, AGridManager* Grid
             GridManager->SetTileBlocked(Building->GridX, Building->GridY, false);
         }
 
-        // 解锁网格：士兵 (如果需要的话)
+        // 士兵
         ABaseUnit* Unit = Cast<ABaseUnit>(HitActor);
         if (Unit && GridManager)
         {
+            // 解锁网格：士兵
             int32 UX, UY;
             if (GridManager->WorldToGrid(Unit->GetActorLocation(), UX, UY))
             {
                 GridManager->SetTileBlocked(UX, UY, false);
+            }
+
+            // 返还人口 (固定 -1)
+            URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+            if (GI)
+            {
+                // 只要删了一个兵，人口就减 1，最小减到 0
+                GI->CurrentPopulation = FMath::Max(0, GI->CurrentPopulation - 1);
+
+                UE_LOG(LogTemp, Log, TEXT("Unit Removed. Population -1. Current: %d/%d"),
+                    GI->CurrentPopulation, GI->MaxPopulation);
             }
         }
 

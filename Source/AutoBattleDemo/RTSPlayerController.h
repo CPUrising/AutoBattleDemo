@@ -23,13 +23,22 @@ public:
     UFUNCTION(BlueprintCallable)
         void OnSelectUnitToPlace(EUnitType UnitType);
 
-    // 新增：玩家点击了UI上的“建造建筑”
+    // 玩家点击了UI上的“建造建筑”
     UFUNCTION(BlueprintCallable)
         void OnSelectBuildingToPlace(EBuildingType BuildingType);
 
     // 鼠标点击左键
     UFUNCTION(BlueprintCallable)
         void HandleLeftClick();
+
+    // 选择移除模式
+    UFUNCTION(BlueprintCallable)
+        void OnSelectRemoveMode();
+
+    // 尝试取消当前操作
+    // 返回 true 表示成功取消了某个操作
+    // 返回 false 表示当前没事可做
+    bool CancelCurrentAction();
 
 protected:
     // --- UI 配置 ---
@@ -49,9 +58,7 @@ protected:
     // 辅助函数：更新幽灵位置
     void UpdatePlacementGhost();
 
-    // 选择移除模式
-    UFUNCTION(BlueprintCallable)
-        void OnSelectRemoveMode();
+
 
 private:
     // 当前状态数据

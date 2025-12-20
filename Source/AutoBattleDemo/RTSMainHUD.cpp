@@ -19,6 +19,8 @@ void URTSMainHUD::NativeConstruct()
 	// 绑定建筑按钮
 	if (Btn_BuildTower) Btn_BuildTower->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildTower);
 	if (Btn_BuildMine)  Btn_BuildMine->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildMine);
+	if (Btn_BuildElixir) Btn_BuildElixir->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildElixir);
+	if (Btn_BuildWall)	Btn_BuildWall->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildWall);
 
 	// 绑定流程按钮
 	if (Btn_StartBattle) Btn_StartBattle->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickStartBattle);
@@ -55,7 +57,7 @@ void URTSMainHUD::OnClickBuyBarbarian()
 {
 	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
 	if (PC) {
-		PC->OnSelectUnitToPlace(EUnitType::Soldier);
+		PC->OnSelectUnitToPlace(EUnitType::Barbarian);
 		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
 	}
 }
@@ -100,8 +102,40 @@ void URTSMainHUD::OnClickBuildMine()
 {
 	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
 	if (PC) {
-		PC->OnSelectBuildingToPlace(EBuildingType::Resource);
+		PC->OnSelectBuildingToPlace(EBuildingType::GoldMine);
 		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuildElixir()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		// 告诉 Controller 我要造圣水收集器
+		PC->OnSelectBuildingToPlace(EBuildingType::ElixirPump);
+
+		// 归还鼠标焦点
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
+}
+
+// 实现造墙逻辑
+void URTSMainHUD::OnClickBuildWall()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		// 告诉 Controller：我要造墙
+		PC->OnSelectBuildingToPlace(EBuildingType::Wall);
+
+		// 归还鼠标焦点 (老规矩，防止点完按钮后没法点地板)
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
 	}
 }
 

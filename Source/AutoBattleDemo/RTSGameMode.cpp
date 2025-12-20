@@ -49,12 +49,10 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
     URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
 
     // 检查人口是否已满
-    // 假设每个兵占 1 人口 (以后可以在 BaseUnit 里定义 PopulationCost)
-    int32 UnitPopCost = 1;
-
-    if (GI->CurrentPopulation + UnitPopCost > GI->MaxPopulation)
+    if (GI->CurrentPopulation + 1 > GI->MaxPopulation)
     {
         UE_LOG(LogTemp, Warning, TEXT("Build Failed: Max Population Reached!"));
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Max Population!"));
         return false;
     }
 
@@ -104,10 +102,14 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
     ABaseUnit* NewUnit = GetWorld()->SpawnActor<ABaseUnit>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
     if (NewUnit)
     {
-        if (GI) GI->PlayerElixir -= Cost; // 扣除圣水
+        if (GI) 
+        {
+            GI->PlayerElixir -= Cost; // 扣除圣水
+            GI->PlayerElixir -= Cost; // 扣钱
+            GI->CurrentPopulation += 1; // 人口固定加 1
+        }
         NewUnit->TeamID = ETeam::Player;
         GridManager->SetTileBlocked(GridX, GridY, true); // 兵也占格子
-        GI->CurrentPopulation += UnitPopCost; // 增加当前人口
         return true;
     }
     return false;
@@ -132,7 +134,8 @@ bool ARTSGameMode::TryBuildBuilding(EBuildingType Type, int32 Cost, int32 GridX,
     switch (Type)
     {
     case EBuildingType::Defense:      SpawnClass = DefenseTowerClass; break;
-    case EBuildingType::Resource:     SpawnClass = GoldMineClass;     break; // 默认金矿
+    case EBuildingType::GoldMine:     SpawnClass = GoldMineClass;     break;
+    case EBuildingType::ElixirPump:   SpawnClass = ElixirPumpClass;   break;
     case EBuildingType::Wall:         SpawnClass = WallClass;         break;
     case EBuildingType::Headquarters: SpawnClass = HQClass;           break;
     default: return false;
@@ -217,7 +220,6 @@ void ARTSGameMode::LoadAndSpawnUnits()
         TSubclassOf<ABaseUnit> SpawnClass = nullptr;
         switch (Data.UnitType)
         {
-        case EUnitType::Soldier:    SpawnClass = BarbarianClass; break;
         case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
         case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
         case EUnitType::Giant:      SpawnClass = GiantClass;     break;

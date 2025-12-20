@@ -25,7 +25,7 @@ enum class ETeam : uint8
 UENUM(BlueprintType)
 enum class EUnitType : uint8
 {
-    Soldier    UMETA(DisplayName = "Soldier"),
+    //Soldier    UMETA(DisplayName = "Soldier"),
     Barbarian  UMETA(DisplayName = "Barbarian"),  // 野蛮人
     Archer     UMETA(DisplayName = "Archer"),     // 弓箭手
     Giant      UMETA(DisplayName = "Giant"),      // 巨人
@@ -37,7 +37,9 @@ UENUM(BlueprintType)
 enum class EBuildingType : uint8
 {
     None          UMETA(DisplayName = "None"),
-    Resource      UMETA(DisplayName = "Resource"),      // 资源建筑（矿场）
+    //Resource      UMETA(DisplayName = "Resource"),      // 资源建筑（矿场）
+    GoldMine      UMETA(DisplayName = "Gold Mine"),     // 金矿
+    ElixirPump    UMETA(DisplayName = "Elixir Pump"),   // 圣水收集器
     Defense       UMETA(DisplayName = "Defense"),       // 防御建筑（炮塔）
     Headquarters  UMETA(DisplayName = "Headquarters"),  // 大本营
     Wall          UMETA(DisplayName = "Wall"),          // 墙

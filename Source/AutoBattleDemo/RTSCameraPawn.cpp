@@ -1,6 +1,7 @@
 #include "RTSCameraPawn.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
+#include "RTSPlayerController.h"
 #include "Components/SceneComponent.h"
 
 ARTSCameraPawn::ARTSCameraPawn()
@@ -93,11 +94,20 @@ void ARTSCameraPawn::ZoomOut()
 
 void ARTSCameraPawn::OnRightClickDown()
 {
-    bIsRMBDown = true;
+    // 获取 Controller
+    ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetController());
 
-    APlayerController* PC = Cast<APlayerController>(GetController());
     if (PC)
     {
+        // --- 优先尝试取消 ---
+        // 如果 Controller 成功取消了放置/移除状态，我们就直接返回，不进入拖拽模式
+        if (PC->CancelCurrentAction())
+        {
+            return;
+        }
+
+        bIsRMBDown = true;
+
         // 1. 隐藏鼠标
         PC->bShowMouseCursor = false;
 

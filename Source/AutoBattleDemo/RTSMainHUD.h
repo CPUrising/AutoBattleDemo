@@ -23,6 +23,10 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UTextBlock* Text_ElixirInfo;
 
+	// --- 人口显示 ---
+	UPROPERTY(meta = (BindWidget))
+		UTextBlock* Text_PopulationInfo;
+
 	// --- 按钮：单位 (消耗圣水) ---
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuyBarbarian;
@@ -49,6 +53,12 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_StartBattle;
 
+	// --- 按钮：移除 ---
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_Remove;
+
+
+
 	// --- 点击事件处理 ---
 	UFUNCTION() void OnClickBuyBarbarian();
 	UFUNCTION() void OnClickBuyArcher();
@@ -59,4 +69,5 @@ protected:
 	UFUNCTION() void OnClickBuildMine();
 
 	UFUNCTION() void OnClickStartBattle();
+	UFUNCTION() void OnClickRemove();
 };

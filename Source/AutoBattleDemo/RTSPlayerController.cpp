@@ -7,6 +7,8 @@
 #include "DrawDebugHelpers.h"
 #include "RTSGameInstance.h"
 #include "RTSCoreTypes.h"
+#include "BaseUnit.h"
+#include "BaseBuilding.h"
 #include "Building_Resource.h" // 必须引用，用于点击收集资源
 
 ARTSPlayerController::ARTSPlayerController()
@@ -18,6 +20,7 @@ ARTSPlayerController::ARTSPlayerController()
 
     bIsPlacingUnit = false;
     bIsPlacingBuilding = false;
+    bIsRemoving = false;
     PendingUnitType = EUnitType::Soldier;
     PendingBuildingType = EBuildingType::None;
 }
@@ -94,85 +97,157 @@ void ARTSPlayerController::OnSelectBuildingToPlace(EBuildingType BuildingType)
     if (PreviewGhostActor) PreviewGhostActor->SetActorHiddenInGame(false);
 }
 
-void ARTSPlayerController::HandleLeftClick()
+void ARTSPlayerController::OnSelectRemoveMode()
 {
-    FHitResult Hit;
-    GetHitResultUnderCursor(ECC_Visibility, false, Hit);
+    bIsRemoving = true;
+    bIsPlacingUnit = false;
+    bIsPlacingBuilding = false;
 
-    AGridManager* GridManager = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+    if (PreviewGhostActor) PreviewGhostActor->SetActorHiddenInGame(true);
 
-    if (!Hit.bBlockingHit) return;
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Orange, TEXT("Remove Mode Active!"));
+}
 
-    // 1. 如果在网格范围内
-    if (GridManager)
+void ARTSPlayerController::HandlePlacementMode(const FHitResult& Hit, AGridManager* GridManager)
+{
+    int32 X, Y;
+    // 检查是否点在有效网格内
+    if (!GridManager->WorldToGrid(Hit.Location, X, Y)) return;
+
+    ARTSGameMode* GM = Cast<ARTSGameMode>(GetWorld()->GetAuthGameMode());
+    if (!GM) return;
+
+    bool bSuccess = false;
+
+    // 分流：造兵 vs 造建筑
+    if (bIsPlacingUnit)
     {
-        int32 X, Y;
-        if (GridManager->WorldToGrid(Hit.Location, X, Y))
+        // 价格表 (建议后续移至 DataTable)
+        int32 Cost = 50;
+        if (PendingUnitType == EUnitType::Archer) Cost = 100;
+        else if (PendingUnitType == EUnitType::Giant) Cost = 300;
+        else if (PendingUnitType == EUnitType::Bomber) Cost = 150;
+
+        bSuccess = GM->TryBuyUnit(PendingUnitType, Cost, X, Y);
+
+        // 成功后退出状态
+        if (bSuccess) bIsPlacingUnit = false;
+    }
+    else if (bIsPlacingBuilding)
+    {
+        int32 Cost = 200;
+        if (PendingBuildingType == EBuildingType::Resource) Cost = 150;
+        else if (PendingBuildingType == EBuildingType::Wall) Cost = 50;
+
+        bSuccess = GM->TryBuildBuilding(PendingBuildingType, Cost, X, Y);
+
+        if (bSuccess) bIsPlacingBuilding = false;
+    }
+
+    // 统一处理反馈
+    if (bSuccess)
+    {
+        if (PreviewGhostActor) PreviewGhostActor->SetActorHiddenInGame(true);
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, TEXT("Placed Successfully!"));
+    }
+    else
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Cannot Place Here!"));
+    }
+}
+
+void ARTSPlayerController::HandleRemoveMode(AActor* HitActor, AGridManager* GridManager)
+{
+    // 尝试转换为游戏实体
+    ABaseGameEntity* Entity = Cast<ABaseGameEntity>(HitActor);
+
+    // 只能删玩家自己的东西
+    if (Entity && Entity->TeamID == ETeam::Player)
+    {
+        // 解锁网格：建筑
+        ABaseBuilding* Building = Cast<ABaseBuilding>(HitActor);
+        if (Building && GridManager)
         {
-            ARTSGameMode* GM = Cast<ARTSGameMode>(GetWorld()->GetAuthGameMode());
-            if (!GM) return;
+            GridManager->SetTileBlocked(Building->GridX, Building->GridY, false);
+        }
 
-            bool bSuccess = false;
-
-            // --- 造兵模式 ---
-            if (bIsPlacingUnit)
+        // 解锁网格：士兵 (如果需要的话)
+        ABaseUnit* Unit = Cast<ABaseUnit>(HitActor);
+        if (Unit && GridManager)
+        {
+            int32 UX, UY;
+            if (GridManager->WorldToGrid(Unit->GetActorLocation(), UX, UY))
             {
-                // 这里的Cost先写死，建议后期建立一个配置表 GetUnitCost(Type)
-                int32 Cost = 50;
-                if (PendingUnitType == EUnitType::Archer) Cost = 100;
-                if (PendingUnitType == EUnitType::Giant) Cost = 300;
-                if (PendingUnitType == EUnitType::Bomber) Cost = 150;
-
-                bSuccess = GM->TryBuyUnit(PendingUnitType, Cost, X, Y);
-
-                if (bSuccess) bIsPlacingUnit = false;
+                GridManager->SetTileBlocked(UX, UY, false);
             }
-            // --- 造建筑模式 ---
-            else if (bIsPlacingBuilding)
-            {
-                int32 Cost = 200;
-                if (PendingBuildingType == EBuildingType::Resource) Cost = 150;
-                if (PendingBuildingType == EBuildingType::Wall) Cost = 50;
+        }
 
-                bSuccess = GM->TryBuildBuilding(PendingBuildingType, Cost, X, Y);
+        // 销毁
+        Entity->Destroy();
 
-                if (bSuccess) bIsPlacingBuilding = false;
-            }
+        // 退出移除模式
+        bIsRemoving = false;
 
-            // 处理成功/失败反馈
-            if (bSuccess)
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Entity Removed"));
+    }
+}
+
+void ARTSPlayerController::HandleNormalMode(AActor* HitActor)
+{
+    // 尝试点击资源建筑
+    ABuilding_Resource* ResBuilding = Cast<ABuilding_Resource>(HitActor);
+    if (ResBuilding)
+    {
+        float Amount = ResBuilding->CollectResource();
+        if (Amount > 0)
+        {
+            URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+            if (GI)
             {
-                if (PreviewGhostActor) PreviewGhostActor->SetActorHiddenInGame(true);
-                if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Yellow, TEXT("Placed Successfully!"));
-                return; // 放置成功就结束，不再执行下面的点击逻辑
-            }
-            else if (bIsPlacingUnit || bIsPlacingBuilding)
-            {
-                if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Cannot Place Here!"));
-                return;
+                if (ResBuilding->bProducesGold)
+                    GI->PlayerGold += Amount;
+                else
+                    GI->PlayerElixir += Amount;
             }
         }
     }
 
-    // 2. 如果不是放置模式，检测是否点击了资源建筑
+    // (未来可以在这里扩展：点击士兵显示血条信息等)
+}
+
+void ARTSPlayerController::HandleLeftClick()
+{
+    // 1. 获取射线检测结果
+    FHitResult Hit;
+    GetHitResultUnderCursor(ECC_Visibility, false, Hit);
+
+    // 2. 获取常用引用
+    AGridManager* GridManager = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
     AActor* HitActor = Hit.GetActor();
-    if (HitActor)
+
+    // 3. 模式分发 (这是最核心的改动，逻辑一目了然)
+    if (bIsPlacingUnit || bIsPlacingBuilding)
     {
-        ABuilding_Resource* ResBuilding = Cast<ABuilding_Resource>(HitActor);
-        if (ResBuilding)
+        // 放置模式：必须点到网格上才处理
+        if (Hit.bBlockingHit && GridManager)
         {
-            float Amount = ResBuilding->CollectResource();
-            if (Amount > 0)
-            {
-                URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
-                if (GI)
-                {
-                    if (ResBuilding->bProducesGold)
-                        GI->PlayerGold += Amount;
-                    else
-                        GI->PlayerElixir += Amount;
-                }
-            }
+            HandlePlacementMode(Hit, GridManager);
+        }
+    }
+    else if (bIsRemoving)
+    {
+        // 移除模式：必须点到物体才处理
+        if (HitActor)
+        {
+            HandleRemoveMode(HitActor, GridManager);
+        }
+    }
+    else
+    {
+        // 普通模式：收集资源或选中
+        if (HitActor)
+        {
+            HandleNormalMode(HitActor);
         }
     }
 }

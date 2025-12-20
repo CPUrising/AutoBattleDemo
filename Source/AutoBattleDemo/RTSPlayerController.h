@@ -4,6 +4,7 @@
 #include "RTSCoreTypes.h"
 #include "RTSPlayerController.generated.h"
 
+class AGridManager;
 class URTSMainHUD;
 
 UCLASS()
@@ -48,6 +49,10 @@ protected:
     // 辅助函数：更新幽灵位置
     void UpdatePlacementGhost();
 
+    // 选择移除模式
+    UFUNCTION(BlueprintCallable)
+        void OnSelectRemoveMode();
+
 private:
     // 当前状态数据
     EUnitType PendingUnitType;
@@ -55,4 +60,12 @@ private:
 
     bool bIsPlacingUnit;
     bool bIsPlacingBuilding;
+
+    // 是否处于移除模式
+    bool bIsRemoving;
+
+    // 逻辑拆分
+    void HandlePlacementMode(const FHitResult& Hit, AGridManager* GridManager);
+    void HandleRemoveMode(AActor* HitActor, AGridManager* GridManager);
+    void HandleNormalMode(AActor* HitActor);
 };

@@ -22,6 +22,9 @@ void URTSMainHUD::NativeConstruct()
 
 	// 绑定流程按钮
 	if (Btn_StartBattle) Btn_StartBattle->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickStartBattle);
+	
+	// 绑定移除按钮
+	if (Btn_Remove) Btn_Remove->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickRemove);
 }
 
 void URTSMainHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -33,11 +36,21 @@ void URTSMainHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	{
 		if (Text_GoldInfo)   Text_GoldInfo->SetText(FText::FromString(FString::Printf(TEXT("Gold: %d"), GI->PlayerGold)));
 		if (Text_ElixirInfo) Text_ElixirInfo->SetText(FText::FromString(FString::Printf(TEXT("Elixir: %d"), GI->PlayerElixir)));
+		
+		// 更新人口
+		if (Text_PopulationInfo)
+		{
+			// 格式示例： Pop: 5 / 20
+			FString PopStr = FString::Printf(TEXT("Pop: %d / %d"),
+				GI->CurrentPopulation,
+				GI->MaxPopulation);
+
+			Text_PopulationInfo->SetText(FText::FromString(PopStr));
+		}
 	}
 }
 
 // 辅助函数：处理点击并归还焦点
-// 为了减少重复代码，你可以写个私有函数，不过这里为了清晰直接展开写
 void URTSMainHUD::OnClickBuyBarbarian()
 {
 	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
@@ -97,7 +110,21 @@ void URTSMainHUD::OnClickStartBattle()
 	ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
 	if (GM)
 	{
-		// 假设战斗地图叫 "BattleField1"，请确保你有这个地图文件
+		// 假设战斗地图叫 "BattleField1"
 		GM->SaveAndStartBattle(FName("BattleField1"));
+	}
+}
+
+void URTSMainHUD::OnClickRemove()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		PC->OnSelectRemoveMode();
+		// 归还焦点
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
 	}
 }

@@ -66,7 +66,7 @@ protected:
         TSubclassOf<class ABaseUnit> GiantClass;     // 新增
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
-        TSubclassOf<class ABaseUnit> BoomerClass;    // 新增
+        TSubclassOf<class ABaseUnit> BomberClass;    // 新增
 
         // --- 建筑蓝图配置 (Classes|Buildings) ---
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")

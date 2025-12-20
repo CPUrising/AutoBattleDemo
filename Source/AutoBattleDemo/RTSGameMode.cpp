@@ -47,6 +47,17 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
     if (CurrentState != EGameState::Preparation) return false;
 
     URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+
+    // 检查人口是否已满
+    // 假设每个兵占 1 人口 (以后可以在 BaseUnit 里定义 PopulationCost)
+    int32 UnitPopCost = 1;
+
+    if (GI->CurrentPopulation + UnitPopCost > GI->MaxPopulation)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Build Failed: Max Population Reached!"));
+        return false;
+    }
+
     // 造兵通常消耗圣水 (Elixir)
     int32 CurrentElixir = GI ? GI->PlayerElixir : 9999;
 
@@ -63,12 +74,12 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
         case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
         case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
         case EUnitType::Giant:      SpawnClass = GiantClass;     break;
-        case EUnitType::Bomber:     SpawnClass = BoomerClass;    break;
+        case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
     }
 
     if (!SpawnClass || !GridManager) return false;
 
-    // --- 高度计算 (通用版：支持 Pawn 和 Character) ---
+    // 高度计算 (通用版：支持 Pawn 和 Character)
     float SpawnZOffset = 0.0f;
     ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
     if (DefaultUnit)
@@ -96,6 +107,7 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
         if (GI) GI->PlayerElixir -= Cost; // 扣除圣水
         NewUnit->TeamID = ETeam::Player;
         GridManager->SetTileBlocked(GridX, GridY, true); // 兵也占格子
+        GI->CurrentPopulation += UnitPopCost; // 增加当前人口
         return true;
     }
     return false;
@@ -209,7 +221,7 @@ void ARTSGameMode::LoadAndSpawnUnits()
         case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
         case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
         case EUnitType::Giant:      SpawnClass = GiantClass;     break;
-        case EUnitType::Bomber:     SpawnClass = BoomerClass;    break;
+        case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
         }
 
         if (!SpawnClass) continue;

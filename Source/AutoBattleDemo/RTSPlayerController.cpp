@@ -29,12 +29,38 @@ void ARTSPlayerController::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (IsLocalPlayerController() && MainHUDClass)
+    if (IsLocalPlayerController())
     {
-        MainHUDInstance = CreateWidget<URTSMainHUD>(this, MainHUDClass);
-        if (MainHUDInstance)
+        // 获取当前地图名字
+        FString MapName = GetWorld()->GetMapName();
+        // 去掉前缀 (UE4 Map名通常带 UEDPIE_0_ 前缀)
+        MapName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix);
+
+        UUserWidget* HUDToCreate = nullptr;
+
+        // --- 逻辑判断：在哪张图？ ---
+        if (MapName.Contains("BattleField")) // 如果是战斗地图
         {
-            MainHUDInstance->AddToViewport();
+            if (BattleHUDClass)
+            {
+                HUDToCreate = CreateWidget<UUserWidget>(this, BattleHUDClass);
+            }
+        }
+        else // 默认是基地地图 (PlayerBase)
+        {
+            if (MainHUDClass)
+            {
+                HUDToCreate = CreateWidget<UUserWidget>(this, MainHUDClass);
+                // 保存到 MainHUDInstance 方便以后调用（如果有需要）
+                MainHUDInstance = Cast<URTSMainHUD>(HUDToCreate);
+            }
+        }
+
+        // --- 统一显示 ---
+        if (HUDToCreate)
+        {
+            HUDToCreate->AddToViewport();
+
             FInputModeGameAndUI InputMode;
             InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
             SetInputMode(InputMode);
@@ -319,6 +345,20 @@ void ARTSPlayerController::UpdatePlacementGhost()
                 SnapPos.Z += HoverHeight;
 
                 PreviewGhostActor->SetActorLocation(SnapPos);
+
+                // 检查该格子是否可走
+                bool bCanPlace = GridManager->IsTileWalkable(X, Y);
+
+                // 简单粗暴的方法：如果不能放，就隐藏幽灵，或者打印个红字提示
+                // 更好的方法是改变材质颜色(但这需要材质参数支持)
+
+                // 这里我们用一种简单的方法：如果不能放，把幽灵设为半透明红色(如果材质支持)
+                // 或者简单点：如果不能放，就在屏幕上打印个警告
+                if (!bCanPlace)
+                {
+                    // 每一帧都打印，虽然有点刷屏，但能看到效果
+                    if (GEngine) GEngine->AddOnScreenDebugMessage(10, 0.1f, FColor::Red, TEXT("BLOCKED"));
+                }
             }
         }
     }

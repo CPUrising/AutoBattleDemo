@@ -1,5 +1,7 @@
 #include "BaseBuilding.h"
 #include "Components/StaticMeshComponent.h"
+#include "GridManager.h"
+#include "Kismet/GameplayStatics.h" 
 
 ABaseBuilding::ABaseBuilding()
 {
@@ -39,6 +41,24 @@ void ABaseBuilding::BeginPlay()
 
     UE_LOG(LogTemp, Log, TEXT("[Building] %s | Type: %d | Level: %d | GridPos: (%d, %d)"),
         *GetName(), (int32)BuildingType, BuildingLevel, GridX, GridY);
+
+    // 如果 GridX/Y 没被设置过，就自己算一次
+    if (GridX == -1)
+    {
+        AGridManager* GM = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+        if (GM)
+
+        {
+            GM->WorldToGrid(GetActorLocation(), GridX, GridY);
+        }
+    }
+
+    // 锁定格子
+    AGridManager* GM = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+    if (GM)
+    {
+        GM->SetTileBlocked(GridX, GridY, true);
+    }
 }
 
 void ABaseBuilding::Tick(float DeltaTime)

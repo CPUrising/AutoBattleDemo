@@ -41,9 +41,13 @@ public:
     bool CancelCurrentAction();
 
 protected:
-    // --- UI 配置 ---
+    // UI 配置
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
         TSubclassOf<URTSMainHUD> MainHUDClass;
+
+    // 战斗 UI 配置
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+        TSubclassOf<UUserWidget> BattleHUDClass; // 战斗用的 UI 模板
 
     UPROPERTY()
         URTSMainHUD* MainHUDInstance;
@@ -57,6 +61,8 @@ protected:
 
     // 辅助函数：更新幽灵位置
     void UpdatePlacementGhost();
+
+
 
 
 

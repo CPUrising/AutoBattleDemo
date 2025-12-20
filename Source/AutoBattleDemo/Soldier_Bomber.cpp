@@ -29,7 +29,7 @@ void ASoldier_Bomber::BeginPlay()
         *GetName(), ExplosionDamage, ExplosionRadius);
 }
 
-AActor* ASoldier_Bomber::FindClosestEnemyBuilding()
+AActor* ASoldier_Bomber::FindClosestTarget()
 {
     TArray<AActor*> AllBuildings;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);

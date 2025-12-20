@@ -26,7 +26,7 @@ public:
 
 protected:
     // 重写目标寻找：优先找墙
-    virtual AActor* FindClosestEnemyBuilding() override;
+    virtual AActor* FindClosestTarget() override;
 
     // 重写攻击：自爆逻辑
     virtual void PerformAttack() override;

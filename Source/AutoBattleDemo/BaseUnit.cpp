@@ -69,7 +69,7 @@ void ABaseUnit::Tick(float DeltaTime)
     case EUnitState::Idle:
         if (!CurrentTarget)
         {
-            CurrentTarget = FindClosestEnemyBuilding();
+            CurrentTarget = FindClosestTarget();
             if (CurrentTarget)
             {
                 float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
@@ -202,39 +202,47 @@ void ABaseUnit::SetUnitActive(bool bActive)
     }
 }
 
-AActor* ABaseUnit::FindClosestEnemyBuilding()
+AActor* ABaseUnit::FindClosestTarget()
 {
-    AActor* ClosestBuilding = nullptr;
+    AActor* ClosestActor = nullptr;
     float ClosestDistance = FLT_MAX;
 
-    TArray<AActor*> AllBuildings;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
+    // 1. 获取所有实体 (包括兵和建筑)
+    TArray<AActor*> AllEntities;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseGameEntity::StaticClass(), AllEntities);
 
-    for (AActor* Actor : AllBuildings)
+    for (AActor* Actor : AllEntities)
     {
-        ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
+        ABaseGameEntity* Entity = Cast<ABaseGameEntity>(Actor);
 
-        if (Building &&
-            Building->TeamID != this->TeamID &&
-            Building->bIsTargetable &&
-            Building->CurrentHealth > 0)
+        // 过滤条件：
+        // 1. 必须存在
+        // 2. 必须是敌人 (TeamID 不同)
+        // 3. 必须活着
+        // 4. 必须可被攻击 (bIsTargetable)
+        if (Entity &&
+            Entity->TeamID != this->TeamID &&
+            Entity->CurrentHealth > 0 &&
+            Entity->bIsTargetable)
         {
-            float Distance = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
+            float Distance = FVector::Dist(GetActorLocation(), Entity->GetActorLocation());
 
+            // 如果已经在攻击范围内，直接锁定，不用找更近的了
             if (Distance <= AttackRange)
             {
-                return Building;
+                return Entity;
             }
 
+            // 找最近的
             if (Distance < ClosestDistance)
             {
                 ClosestDistance = Distance;
-                ClosestBuilding = Building;
+                ClosestActor = Entity;
             }
         }
     }
 
-    return ClosestBuilding;
+    return ClosestActor;
 }
 
 void ABaseUnit::RequestPathToTarget()

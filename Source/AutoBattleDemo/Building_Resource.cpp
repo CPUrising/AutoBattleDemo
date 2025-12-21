@@ -4,7 +4,7 @@ ABuilding_Resource::ABuilding_Resource()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    BuildingType = EBuildingType::Resource;
+    BuildingType = EBuildingType::GoldMine;
 
     // 资源建筑属性
     MaxHealth = 600.0f;

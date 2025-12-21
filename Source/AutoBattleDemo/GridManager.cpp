@@ -245,20 +245,20 @@ void AGridManager::SetTileBlocked(int32 GridX, int32 GridY, bool bBlocked)
         OnTileBlockedChanged.Broadcast(GridX, GridY);  // 通知外部（如单位重新寻路）
     }
 
-    // 调试绘制：显示阻挡状态变化
-    if (bDrawDebug && GetWorld())
-    {
-        DrawDebugBox(
-            GetWorld(),
-            GridNodes[Index].WorldLocation,
-            FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 2.0f),
-            bBlocked ? FColor::Red : FColor::White,
-            true,
-            30.0f,
-            0,
-            3.0f
-        );
-    }
+    //// 调试绘制：显示阻挡状态变化
+    //if (bDrawDebug && GetWorld())
+    //{
+    //    DrawDebugBox(
+    //        GetWorld(),
+    //        GridNodes[Index].WorldLocation,
+    //        FVector(TileSize / 2 * 0.9f, TileSize / 2 * 0.9f, 2.0f),
+    //        bBlocked ? FColor::Red : FColor::White,
+    //        true,
+    //        30.0f,
+    //        0,
+    //        3.0f
+    //    );
+    //}
 }
 
 // 网格坐标转世界坐标：获取格子中心点

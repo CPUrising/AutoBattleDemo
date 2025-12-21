@@ -8,86 +8,157 @@
 
 void URTSMainHUD::NativeConstruct()
 {
-    Super::NativeConstruct();
+	Super::NativeConstruct();
 
-    // 绑定点击事件
-    if (Btn_BuySoldier)
-    {
-        Btn_BuySoldier->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuySoldier);
-    }
-    if (Btn_BuyArcher)
-    {
-        Btn_BuyArcher->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuyArcher);
-    }
-    if (Btn_StartBattle)
-    {
-        Btn_StartBattle->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickStartBattle);
-    }
+	// 绑定单位按钮
+	if (Btn_BuyBarbarian)  Btn_BuyBarbarian->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuyBarbarian);
+	if (Btn_BuyArcher)  Btn_BuyArcher->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuyArcher);
+	if (Btn_BuyGiant)   Btn_BuyGiant->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuyGiant);
+	if (Btn_BuyBomber)  Btn_BuyBomber->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuyBomber);
+
+	// 绑定建筑按钮
+	if (Btn_BuildTower) Btn_BuildTower->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildTower);
+	if (Btn_BuildMine)  Btn_BuildMine->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildMine);
+	if (Btn_BuildElixir) Btn_BuildElixir->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildElixir);
+	if (Btn_BuildWall)	Btn_BuildWall->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildWall);
+
+	// 绑定流程按钮
+	if (Btn_StartBattle) Btn_StartBattle->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickStartBattle);
+	
+	// 绑定移除按钮
+	if (Btn_Remove) Btn_Remove->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickRemove);
 }
-
-// RTSMainHUD.cpp
 
 void URTSMainHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
-    Super::NativeTick(MyGeometry, InDeltaTime);
+	Super::NativeTick(MyGeometry, InDeltaTime);
 
-    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
-    if (GI)
-    {
-        // 更新金币
-        if (Text_GoldInfo)
-        {
-            Text_GoldInfo->SetText(FText::FromString(FString::Printf(TEXT("Gold: %d"), GI->PlayerGold)));
-        }
+	URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+	if (GI)
+	{
+		if (Text_GoldInfo)   Text_GoldInfo->SetText(FText::FromString(FString::Printf(TEXT("Gold: %d"), GI->PlayerGold)));
+		if (Text_ElixirInfo) Text_ElixirInfo->SetText(FText::FromString(FString::Printf(TEXT("Elixir: %d"), GI->PlayerElixir)));
+		
+		// 更新人口
+		if (Text_PopulationInfo)
+		{
+			// 格式示例： Pop: 5 / 20
+			FString PopStr = FString::Printf(TEXT("Pop: %d / %d"),
+				GI->CurrentPopulation,
+				GI->MaxPopulation);
 
-        // 更新圣水 (Elixir)
-        if (Text_ElixirInfo)
-        {
-            Text_ElixirInfo->SetText(FText::FromString(FString::Printf(TEXT("Elixir: %d"), GI->PlayerElixir)));
-        }
-    }
+			Text_PopulationInfo->SetText(FText::FromString(PopStr));
+		}
+	}
 }
 
-void URTSMainHUD::OnClickBuySoldier()
+// 辅助函数：处理点击并归还焦点
+void URTSMainHUD::OnClickBuyBarbarian()
 {
-    // 获取 Controller，告诉它我要买步兵
-    ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
-    if (PC)
-    {
-        PC->OnSelectUnitToPlace(EUnitType::Soldier);
-
-        // 把焦点还给游戏，否则 Tick 里的鼠标检测可能会卡住
-        FInputModeGameAndUI InputMode;
-        InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-        InputMode.SetHideCursorDuringCapture(false);
-        // 关键：不要让 Widget 继续持有焦点
-        PC->SetInputMode(InputMode);
-        PC->bShowMouseCursor = true;
-    }
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectUnitToPlace(EUnitType::Barbarian);
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
 }
 
 void URTSMainHUD::OnClickBuyArcher()
 {
-    // 告诉 Controller 我要买弓箭手
-    ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
-    if (PC)
-    {
-        PC->OnSelectUnitToPlace(EUnitType::Archer);
-    }
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectUnitToPlace(EUnitType::Archer);
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuyGiant()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectUnitToPlace(EUnitType::Giant);
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuyBomber()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectUnitToPlace(EUnitType::Bomber);
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuildTower()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectBuildingToPlace(EBuildingType::Defense); // 注意：对应 GameMode switch 里的类型
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuildMine()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		PC->OnSelectBuildingToPlace(EBuildingType::GoldMine);
+		PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false).SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock));
+	}
+}
+
+void URTSMainHUD::OnClickBuildElixir()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC) {
+		// 告诉 Controller 我要造圣水收集器
+		PC->OnSelectBuildingToPlace(EBuildingType::ElixirPump);
+
+		// 归还鼠标焦点
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
+}
+
+// 实现造墙逻辑
+void URTSMainHUD::OnClickBuildWall()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		// 告诉 Controller：我要造墙
+		PC->OnSelectBuildingToPlace(EBuildingType::Wall);
+
+		// 归还鼠标焦点 (老规矩，防止点完按钮后没法点地板)
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
 }
 
 void URTSMainHUD::OnClickStartBattle()
 {
-    // 获取 GameMode，开始战斗
-    ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
-    if (GM)
-    {
-        GM->StartBattlePhase();
+	ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
+	if (GM)
+	{
+		// 假设战斗地图叫 "BattleField1"
+		GM->SaveAndStartBattle(FName("BattleField1"));
+	}
+}
 
-        // 隐藏开始按钮，防止重复点击
-        if (Btn_StartBattle)
-        {
-            Btn_StartBattle->SetVisibility(ESlateVisibility::Hidden);
-        }
-    }
+void URTSMainHUD::OnClickRemove()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		PC->OnSelectRemoveMode();
+		// 归还焦点
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
 }

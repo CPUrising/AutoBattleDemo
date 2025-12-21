@@ -5,17 +5,9 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "Sound/SoundBase.h"
+#include "RTSCoreTypes.h"
 #include "LevelDataAsset.generated.h"
 
-// 资源类型枚举（金币/圣水等）
-UENUM(BlueprintType)
-enum class EResourceType : uint8
-{
-    RT_Gold UMETA(DisplayName = "金币"),
-    RT_Elixir UMETA(DisplayName = "圣水"),
-    //RT_DarkElixir UMETA(DisplayName = "暗黑重油"),
-    RT_None UMETA(DisplayName = "无资源")
-};
 
 USTRUCT(BlueprintType)
 struct FLevelGridConfig
@@ -44,7 +36,7 @@ struct FLevelGridConfig
 
         // --- 新增：资源点配置 ---
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource Settings")
-        EResourceType ResourceType = EResourceType::RT_None; // 默认为无资源
+        EResourceType ResourceType = EResourceType::None; // 默认为无资源
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Resource Settings", meta = (ClampMin = 0, EditCondition = "ResourceType != EResourceType::RT_None"))
         int32 ResourceAmount = 0; // 资源数量（仅当有资源时生效）

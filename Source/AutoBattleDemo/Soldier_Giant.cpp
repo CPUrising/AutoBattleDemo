@@ -24,7 +24,7 @@ void ASoldier_Giant::BeginPlay()
         *GetName(), MaxHealth, Damage);
 }
 
-AActor* ASoldier_Giant::FindClosestEnemyBuilding()
+AActor* ASoldier_Giant::FindClosestTarget()
 {
     // 第一优先级：防御塔
     TArray<AActor*> AllDefenses;

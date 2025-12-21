@@ -19,5 +19,5 @@ public:
 
 protected:
     // 重写目标寻找：优先攻击防御塔
-    virtual AActor* FindClosestEnemyBuilding() override;
+    virtual AActor* FindClosestTarget() override;
 };

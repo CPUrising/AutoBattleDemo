@@ -55,7 +55,7 @@ public:
 protected:
     // --- 核心AI逻辑（可被子类重写） ---
 
-    virtual AActor* FindClosestEnemyBuilding();
+    virtual AActor* FindClosestTarget();
 
     void RequestPathToTarget();
 

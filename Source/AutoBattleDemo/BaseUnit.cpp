@@ -12,15 +12,17 @@ ABaseUnit::ABaseUnit()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    // 鍒涘缓鑳跺泭浣�
+    // 1. 创建胶囊体 (根组件)
     CapsuleComp = CreateDefaultSubobject<UCapsuleComponent>(TEXT("CapsuleComp"));
     CapsuleComp->SetupAttachment(RootComponent);
     CapsuleComp->InitCapsuleSize(40.0f, 90.0f);
     CapsuleComp->SetCollisionProfileName(TEXT("Pawn"));
 
-    // 鍒涘缓妯″瀷
+    // 2. 创建模型
     MeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComp"));
     MeshComp->SetupAttachment(CapsuleComp);
+    // 保持为 0，具体偏移在蓝图里调
+    MeshComp->SetRelativeLocation(FVector(0.f, 0.f, 0.f));
 
     // 榛樿灞炴��
     MaxHealth = 100.0f;
@@ -38,14 +40,14 @@ ABaseUnit::ABaseUnit()
     bIsActive = false;
 
     TeamID = ETeam::Player;
-    bIsTargetable = false;
+    bIsTargetable = true; // [修改] 兵当然可以被攻击
 }
 
 void ABaseUnit::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 鑾峰彇 GridManager
+    // 1. 获取 GridManager
     for (TActorIterator<AGridManager> It(GetWorld()); It; ++It)
     {
         GridManagerRef = *It;
@@ -54,7 +56,16 @@ void ABaseUnit::BeginPlay()
 
     if (!GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot find GridManager!"), *GetName());
+        // 只是警告
+        // UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot find GridManager!"), *GetName());
+    }
+
+    // 2. [新增] 自动激活逻辑 (针对手动放置在战场的敌人)
+    // 如果我是敌人，且地图是战场，那我就不需要 GameMode 来激活我，我自己激活自己
+    FString MapName = GetWorld()->GetMapName();
+    if (MapName.Contains("BattleField") && TeamID == ETeam::Enemy)
+    {
+        SetUnitActive(true);
     }
 }
 
@@ -69,7 +80,7 @@ void ABaseUnit::Tick(float DeltaTime)
     case EUnitState::Idle:
         if (!CurrentTarget)
         {
-            CurrentTarget = FindClosestEnemyBuilding();
+            CurrentTarget = FindClosestTarget();
             if (CurrentTarget)
             {
                 float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
@@ -102,6 +113,7 @@ void ABaseUnit::Tick(float DeltaTime)
         }
         else
         {
+            // 检查目标是否失效
             ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
             if (!TargetEntity || TargetEntity->CurrentHealth <= 0 || CurrentTarget->IsPendingKill())
             {
@@ -116,6 +128,7 @@ void ABaseUnit::Tick(float DeltaTime)
         {
             MoveAlongPath(DeltaTime);
 
+            // 移动中也要时刻检查是否已经进入攻击范围 (防止走到脸贴脸才停)
             if (CurrentTarget)
             {
                 float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
@@ -141,6 +154,48 @@ void ABaseUnit::Tick(float DeltaTime)
         PerformAttack();
         break;
     }
+
+    // 防重叠逻辑 (简单的群聚分离力)
+    if (CurrentState != EUnitState::Idle)
+    {
+        // 找附近的队友
+        TArray<FOverlapResult> Overlaps;
+        FCollisionQueryParams Params;
+        Params.AddIgnoredActor(this);
+
+        // 检测周围 50cm 内有没有人
+        bool bHit = GetWorld()->OverlapMultiByChannel(
+            Overlaps,
+            GetActorLocation(),
+            FQuat::Identity,
+            ECC_Pawn,
+            FCollisionShape::MakeSphere(50.0f),
+            Params
+        );
+
+        if (bHit)
+        {
+            FVector SeparationForce = FVector::ZeroVector;
+            for (const FOverlapResult& Res : Overlaps)
+            {
+                ABaseUnit* OtherUnit = Cast<ABaseUnit>(Res.GetActor());
+                // 只推开活着的、同阵营的单位 (或者是敌人也推开防止穿模)
+                if (OtherUnit && OtherUnit->CurrentHealth > 0)
+                {
+                    // 计算推开的方向
+                    FVector Dir = GetActorLocation() - OtherUnit->GetActorLocation();
+                    Dir.Z = 0; // 不要在垂直方向推
+                    SeparationForce += Dir.GetSafeNormal();
+                }
+            }
+
+            // 施加推力 (轻微偏移)
+            if (!SeparationForce.IsNearlyZero())
+            {
+                AddActorWorldOffset(SeparationForce * 10.0f * DeltaTime);
+            }
+        }
+    }
 }
 
 void ABaseUnit::SetUnitActive(bool bActive)
@@ -161,46 +216,59 @@ void ABaseUnit::SetUnitActive(bool bActive)
     }
 }
 
-AActor* ABaseUnit::FindClosestEnemyBuilding()
+AActor* ABaseUnit::FindClosestTarget()
 {
-    AActor* ClosestBuilding = nullptr;
+    AActor* ClosestActor = nullptr;
     float ClosestDistance = FLT_MAX;
 
-    TArray<AActor*> AllBuildings;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
+    // 1. 获取所有实体 (包括兵和建筑)
+    TArray<AActor*> AllEntities;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseGameEntity::StaticClass(), AllEntities);
 
-    for (AActor* Actor : AllBuildings)
+    for (AActor* Actor : AllEntities)
     {
-        ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
+        ABaseGameEntity* Entity = Cast<ABaseGameEntity>(Actor);
 
-        if (Building &&
-            Building->TeamID != this->TeamID &&
-            Building->bIsTargetable &&
-            Building->CurrentHealth > 0)
+        // 过滤条件：
+        // 1. 必须存在
+        // 2. 必须是敌人 (TeamID 不同)
+        // 3. 必须活着
+        // 4. 必须可被攻击 (bIsTargetable)
+        if (Entity &&
+            Entity->TeamID != this->TeamID &&
+            Entity->CurrentHealth > 0 &&
+            Entity->bIsTargetable)
         {
-            float Distance = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
+            float Distance = FVector::Dist(GetActorLocation(), Entity->GetActorLocation());
 
+            // 如果已经在攻击范围内，直接锁定，不用找更近的了
             if (Distance <= AttackRange)
             {
-                return Building;
+                return Entity;
             }
 
+            // 找最近的
             if (Distance < ClosestDistance)
             {
                 ClosestDistance = Distance;
-                ClosestBuilding = Building;
+                ClosestActor = Entity;
             }
         }
     }
 
-    return ClosestBuilding;
+    return ClosestActor;
 }
 
 void ABaseUnit::RequestPathToTarget()
 {
+    if (!GridManagerRef)
+    {
+        GridManagerRef = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+    }
+
     if (!CurrentTarget || !GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot request path!"), *GetName());
+        // UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot request path!"), *GetName());
         return;
     }
 
@@ -212,6 +280,7 @@ void ABaseUnit::RequestPathToTarget()
 
     UE_LOG(LogTemp, Log, TEXT("[Unit] %s path: %d waypoints"), *GetName(), PathPoints.Num());
 
+    /*调试画线
     if (PathPoints.Num() > 1)
     {
         for (int32 i = 0; i < PathPoints.Num() - 1; i++)
@@ -220,8 +289,10 @@ void ABaseUnit::RequestPathToTarget()
                 FColor::Cyan, false, 3.0f, 0, 3.0f);
         }
     }
+    */
 
-    if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 100.0f)
+    // 简单的路径平滑：如果第一个点就在脚下，直接跳过
+    if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 2500.0f)
     {
         CurrentPathIndex = 1;
     }
@@ -245,6 +316,9 @@ void ABaseUnit::MoveAlongPath(float DeltaTime)
 
     FVector TargetPoint = PathPoints[CurrentPathIndex];
     FVector CurrentLocation = GetActorLocation();
+
+    TargetPoint.Z = CurrentLocation.Z;
+
     FVector Direction = (TargetPoint - CurrentLocation).GetSafeNormal();
 
     FVector NewLocation = CurrentLocation + Direction * MoveSpeed * DeltaTime;

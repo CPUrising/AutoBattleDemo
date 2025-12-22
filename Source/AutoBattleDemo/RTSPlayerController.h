@@ -43,6 +43,10 @@ public:
     UFUNCTION(BlueprintCallable)
         void OnSelectRemoveMode();
 
+    // 新增：当前选中的我方单位
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseUnit* SelectedUnit;
+
     // 尝试取消当前操作
     // 返回 true 表示成功取消了某个操作
     // 返回 false 表示当前没事可做

@@ -227,3 +227,4 @@ void URTSMainHUD::OnClickUpgrade()
 		PC->RequestUpgradeSelectedBuilding();
 	}
 }
+

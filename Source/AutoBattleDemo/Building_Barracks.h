@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "BaseBuilding.h"
+#include "RTSCoreTypes.h" // 为了用 FUnitSaveData
 #include "Building_Barracks.generated.h"
 
 UCLASS()
@@ -16,8 +17,22 @@ public:
     // 关键：当物体被销毁（被移除或被打爆）时调用
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+    UFUNCTION(BlueprintCallable, Category = "Barracks")
+        void StoreUnit(class ABaseUnit* UnitToStore);
+
+    UFUNCTION(BlueprintCallable, Category = "Barracks")
+        void ReleaseAllUnits();
+
 protected:
     // 提供的额外人口上限
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stats")
         int32 PopulationBonus;
+
+    // 仓库：存放在里面的兵
+    // 复用 FUnitSaveData 结构体，只存类型即可，位置无所谓
+    UPROPERTY(VisibleAnywhere, Category = "Storage")
+        TArray<FUnitSaveData> StoredUnits;
+
+
+
 };

@@ -15,7 +15,9 @@ void URTSBattleHUD::NativeConstruct()
 
 void URTSBattleHUD::OnClickRetreat()
 {
-	// 撤退逻辑：直接加载回基地地图
-	// 基地地图叫 "PlayerBase"
-	UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+	ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
+	if (GM)
+	{
+		GM->ReturnToBase();
+	}
 }

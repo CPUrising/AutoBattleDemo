@@ -1,5 +1,8 @@
 #include "Building_Barracks.h"
 #include "RTSGameInstance.h"
+#include "BaseUnit.h"
+#include "GridManager.h"
+#include "RTSGameMode.h"
 #include "Kismet/GameplayStatics.h"
 
 ABuilding_Barracks::ABuilding_Barracks()
@@ -36,17 +39,100 @@ void ABuilding_Barracks::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
     // 只有当它是被“销毁”时才扣除 (包括被Remove工具删除，或被敌人打死)
     // EndPlayReason::Destroyed 是最常见的情况
-    if (TeamID == ETeam::Player)
+    if (EndPlayReason == EEndPlayReason::Destroyed)
     {
-        URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
-        if (GI)
+        if (TeamID == ETeam::Player)
         {
-            // 扣除上限，但最小不低于初始值(比如20)或者0
-            // 这里简单处理，直接减
-            GI->MaxPopulation = FMath::Max(0, GI->MaxPopulation - PopulationBonus);
+            URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+            if (GI)
+            {
+                GI->MaxPopulation = FMath::Max(0, GI->MaxPopulation - PopulationBonus);
 
-            UE_LOG(LogTemp, Log, TEXT("Barracks Destroyed! Max Pop -%d. Current Max: %d"),
-                PopulationBonus, GI->MaxPopulation);
+                UE_LOG(LogTemp, Log, TEXT("Barracks Destroyed (Not Level Transition). MaxPop -%d"), PopulationBonus);
+            }
+        }
+    }
+}
+
+// 1. 存兵逻辑
+void ABuilding_Barracks::StoreUnit(ABaseUnit* UnitToStore)
+{
+    if (!UnitToStore) return;
+
+    // 保存数据
+    FUnitSaveData Data;
+    Data.UnitType = UnitToStore->UnitType;
+    StoredUnits.Add(Data);
+
+    // 解锁它原来占用的格子
+    AGridManager* GM = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+    if (GM)
+    {
+        int32 X, Y;
+        if (GM->WorldToGrid(UnitToStore->GetActorLocation(), X, Y))
+        {
+            GM->SetTileBlocked(X, Y, false);
+        }
+    }
+
+    // 销毁 Actor
+    UnitToStore->Destroy();
+
+    UE_LOG(LogTemp, Warning, TEXT("Unit Stored in Barracks! Total: %d"), StoredUnits.Num());
+}
+
+// 2. 释放逻辑 (核心)
+void ABuilding_Barracks::ReleaseAllUnits()
+{
+    if (StoredUnits.Num() == 0) return;
+
+    ARTSGameMode* GameMode = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
+    AGridManager* GM = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
+
+    if (!GameMode || !GM) return;
+
+    // 遍历库存
+    for (int32 i = StoredUnits.Num() - 1; i >= 0; i--)
+    {
+        FUnitSaveData UnitData = StoredUnits[i];
+
+        // --- 寻找空位 (从兵营位置开始向外扩散) ---
+        bool bFoundSpot = false;
+        int32 TargetX = GridX;
+        int32 TargetY = GridY;
+
+        // 半径从 1 开始扩 (找周围一圈，再两圈...)
+        for (int32 Radius = 1; Radius <= 5; Radius++)
+        {
+            for (int32 x = GridX - Radius; x <= GridX + Radius; x++)
+            {
+                for (int32 y = GridY - Radius; y <= GridY + Radius; y++)
+                {
+                    if (GM->IsTileWalkable(x, y))
+                    {
+                        TargetX = x;
+                        TargetY = y;
+                        bFoundSpot = true;
+                        goto SpotFound; // 跳出循环
+                    }
+                }
+            }
+        }
+    SpotFound:;
+
+        // 如果找到空位，生成！
+        if (bFoundSpot)
+        {
+            if (GameMode->SpawnUnitAt(UnitData.UnitType, TargetX, TargetY))
+            {
+                // 生成成功，从仓库移除
+                StoredUnits.RemoveAt(i);
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Barracks full! No space to release unit."));
+            break; // 周围堵死了，别放了
         }
     }
 }

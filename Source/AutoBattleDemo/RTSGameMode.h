@@ -57,6 +57,13 @@ public:
     // 尝试升级指定建筑
     bool TryUpgradeBuilding(class ABaseBuilding* BuildingToUpgrade);
 
+    // 结算并回城 (只保存活着的兵，并切换地图)
+    UFUNCTION(BlueprintCallable, Category = "GameFlow")
+        void ReturnToBase();
+
+    // 在指定位置强制生成单位 (不扣资源，供兵营释放使用)
+    bool SpawnUnitAt(EUnitType Type, int32 GridX, int32 GridY);
+
 protected:
     UPROPERTY(BlueprintReadOnly, Category = "GameFlow")
         EGameState CurrentState;

@@ -288,6 +288,8 @@ void ARTSGameMode::LoadAndSpawnBase()
             case EBuildingType::GoldMine:     SpawnClass = GoldMineClass;     break;
             case EBuildingType::ElixirPump:   SpawnClass = ElixirPumpClass;   break;
             case EBuildingType::Wall:         SpawnClass = WallClass;         break;
+            case EBuildingType::Barracks:     SpawnClass = BarracksClass;     break;
+            case EBuildingType::Headquarters: SpawnClass = HQClass;           break;
         }
 
 
@@ -366,25 +368,70 @@ void ARTSGameMode::SaveAndStartBattle(FName LevelName)
     UGameplayStatics::OpenLevel(this, LevelName);
 }
 
+void ARTSGameMode::StartBattlePhase()
+{
+    CurrentState = EGameState::Battle;
+    for (TActorIterator<ABaseUnit> It(GetWorld()); It; ++It)
+    {
+        if (*It) (*It)->SetUnitActive(true);
+    }
+    UE_LOG(LogTemp, Log, TEXT("Battle Phase Started!"));
+}
+
+void ARTSGameMode::RestartLevel()
+{
+    UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
+}
+
+// 结算逻辑：把活着的兵存下来，然后回城
+void ARTSGameMode::ReturnToBase()
+{
+    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+    if (!GI) return;
+
+    // 1. 清空旧数据 (把出发前的阵容删掉，防止死兵复活)
+    GI->PlayerArmy.Empty();
+
+    // 2. 遍历战场上所有的兵
+    for (TActorIterator<ABaseUnit> It(GetWorld()); It; ++It)
+    {
+        ABaseUnit* Unit = *It;
+
+        // 筛选：必须是玩家的兵 + 必须活着 + 没有被标记销毁
+        if (Unit &&
+            Unit->TeamID == ETeam::Player &&
+            Unit->CurrentHealth > 0 &&
+            !Unit->IsPendingKill())
+        {
+            FUnitSaveData Data;
+            Data.UnitType = Unit->UnitType;
+
+            // 计算它当前在战场上的哪个格子 (作为回城后的参考位置)
+            if (GridManager)
+            {
+                // 如果兵在移动中，可能不在格子上，但这没关系，WorldToGrid 会算最近的
+                GridManager->WorldToGrid(Unit->GetActorLocation(), Data.GridX, Data.GridY);
+            }
+
+            GI->PlayerArmy.Add(Data);
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("Returning to Base with %d survivors."), GI->PlayerArmy.Num());
+
+    // 3. 回家
+    UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+}
+
+// 加载逻辑：带防重叠功能的生成
 void ARTSGameMode::LoadAndSpawnUnits()
 {
-    // [调试 1] 检查函数是否被调用
-    UE_LOG(LogTemp, Error, TEXT(">>> LoadAndSpawnUnits START! <<<"));
-
     URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
-
-    // [调试 2] 检查关键指针
-    if (!GI) UE_LOG(LogTemp, Error, TEXT(">>> GI is NULL!"));
-    if (!GridManager) UE_LOG(LogTemp, Error, TEXT(">>> GridManager is NULL!"));
-
-
     if (!GI || !GridManager) return;
-
-    // [调试 3] 检查存档数量
-    UE_LOG(LogTemp, Warning, TEXT(">>> Army Count in SaveData: %d"), GI->PlayerArmy.Num());
 
     for (const FUnitSaveData& Data : GI->PlayerArmy)
     {
+        // 1. 匹配蓝图
         TSubclassOf<ABaseUnit> SpawnClass = nullptr;
         switch (Data.UnitType)
         {
@@ -396,10 +443,52 @@ void ARTSGameMode::LoadAndSpawnUnits()
 
         if (!SpawnClass) continue;
 
-        // 计算位置
-        FVector SpawnLoc = GridManager->GridToWorld(Data.GridX, Data.GridY);
+        // 2. [核心算法] 寻找可用位置 (Spiral Search / 螺旋搜索)
+        // 也就是：如果目标格子堵了，就找它隔壁的，再找隔壁的隔壁...
+        int32 FinalX = Data.GridX;
+        int32 FinalY = Data.GridY;
+        bool bFoundSpot = false;
 
-        // 使用与 TryBuyUnit 完全一致的高度计算逻辑
+        // 检查原位置
+        if (GridManager->IsTileWalkable(FinalX, FinalY))
+        {
+            bFoundSpot = true;
+        }
+        else
+        {
+            // 原位置堵了，开始向外搜索 (半径 1 到 5)
+            // 这种暴力搜索在 20x20 的地图上性能消耗可以忽略不计
+            for (int32 Radius = 1; Radius <= 5; ++Radius)
+            {
+                for (int32 x = Data.GridX - Radius; x <= Data.GridX + Radius; ++x)
+                {
+                    for (int32 y = Data.GridY - Radius; y <= Data.GridY + Radius; ++y)
+                    {
+                        // 找到一个空位！
+                        if (GridManager->IsTileWalkable(x, y))
+                        {
+                            FinalX = x;
+                            FinalY = y;
+                            bFoundSpot = true;
+                            goto FoundLabel; // 跳出所有循环
+                        }
+                    }
+                }
+            }
+        }
+    FoundLabel:; // goto 跳转点
+
+    // 如果方圆 5 格都堵死了，那就不生成这个兵了 (或者你可以选择重叠生成)
+        if (!bFoundSpot)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Unit dropped: No space found near [%d, %d]"), Data.GridX, Data.GridY);
+            continue;
+        }
+
+        // 3. 计算世界坐标
+        FVector SpawnLoc = GridManager->GridToWorld(FinalX, FinalY);
+
+        // 4. 计算高度 (保持之前的完美贴地逻辑)
         float SpawnZOffset = 0.0f;
         ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
         if (DefaultUnit)
@@ -414,10 +503,9 @@ void ARTSGameMode::LoadAndSpawnUnits()
                 SpawnZOffset = BoxExtent.Z;
             }
         }
-
         SpawnLoc.Z += SpawnZOffset;
 
-
+        // 5. 生成
         FActorSpawnParameters Params;
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
@@ -425,24 +513,10 @@ void ARTSGameMode::LoadAndSpawnUnits()
         if (NewUnit)
         {
             NewUnit->TeamID = ETeam::Player;
-            // GridManager->SetTileBlocked(Data.GridX, Data.GridY, true);
+            // 锁定新的格子
+            GridManager->SetTileBlocked(FinalX, FinalY, true);
         }
     }
-}
-
-void ARTSGameMode::StartBattlePhase()
-{
-    CurrentState = EGameState::Battle;
-    for (TActorIterator<ABaseUnit> It(GetWorld()); It; ++It)
-    {
-        if (*It) (*It)->SetUnitActive(true);
-    }
-    UE_LOG(LogTemp, Log, TEXT("Battle Phase Started!"));
-}
-
-void ARTSGameMode::RestartLevel()
-{
-    UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
 }
 
 void ARTSGameMode::OnActorKilled(AActor* Victim, AActor* Killer)
@@ -471,6 +545,51 @@ void ARTSGameMode::OnActorKilled(AActor* Victim, AActor* Killer)
     CheckWinCondition();
 }
 
+bool ARTSGameMode::SpawnUnitAt(EUnitType Type, int32 GridX, int32 GridY)
+{
+    if (!GridManager) return false;
+
+    // 1. 匹配蓝图
+    TSubclassOf<ABaseUnit> SpawnClass = nullptr;
+    switch (Type)
+    {
+    case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
+    case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
+    case EUnitType::Giant:      SpawnClass = GiantClass;     break;
+    case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
+    }
+    if (!SpawnClass) return false;
+
+    // 2. 高度计算 (复制之前的逻辑)
+    FVector SpawnLoc = GridManager->GridToWorld(GridX, GridY);
+    float SpawnZOffset = 0.0f;
+    ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
+    if (DefaultUnit)
+    {
+        UCapsuleComponent* Cap = DefaultUnit->FindComponentByClass<UCapsuleComponent>();
+        if (Cap) SpawnZOffset = Cap->GetScaledCapsuleHalfHeight();
+        else
+        {
+            FVector Origin, BoxExtent;
+            DefaultUnit->GetActorBounds(true, Origin, BoxExtent);
+            SpawnZOffset = BoxExtent.Z;
+        }
+    }
+    SpawnLoc.Z += SpawnZOffset;
+
+    // 3. 生成
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    ABaseUnit* NewUnit = GetWorld()->SpawnActor<ABaseUnit>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
+    if (NewUnit)
+    {
+        NewUnit->TeamID = ETeam::Player;
+        GridManager->SetTileBlocked(GridX, GridY, true);
+        return true;
+    }
+    return false;
+}
 
 void ARTSGameMode::CheckWinCondition()
 {
@@ -509,7 +628,7 @@ void ARTSGameMode::CheckWinCondition()
         FTimerHandle TimerHandle;
         GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
             {
-                UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+                ReturnToBase();
             }, 3.0f, false);
 
         return; // 结束检查
@@ -540,7 +659,7 @@ void ARTSGameMode::CheckWinCondition()
         FTimerHandle TimerHandle;
         GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
             {
-                UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+                ReturnToBase();
             }, 3.0f, false);
     }
 }

@@ -10,6 +10,7 @@
 #include "BaseUnit.h"
 #include "BaseBuilding.h"
 #include "Building_Resource.h" // 用于点击收集资源
+#include "Building_Barracks.h" // 引用兵营
 #include "Components/StaticMeshComponent.h"
 
 ARTSPlayerController::ARTSPlayerController()
@@ -336,6 +337,43 @@ void ARTSPlayerController::HandleNormalMode(AActor* HitActor)
         // 点击了地板或敌人 -> 取消选中
         SelectedBuilding = nullptr;
     }
+
+    // 尝试点击兵营
+    ABuilding_Barracks* Barracks = Cast<ABuilding_Barracks>(HitActor);
+    if (Barracks && Barracks->TeamID == ETeam::Player)
+    {
+        // 场景 A：手里选了个兵 -> 存进去
+        if (SelectedUnit)
+        {
+            // 确保兵活着且没死
+            if (SelectedUnit->IsValidLowLevel() && !SelectedUnit->IsPendingKill())
+            {
+                Barracks->StoreUnit(SelectedUnit);
+                SelectedUnit = nullptr; // 存完了，清空选中
+                if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("Unit Stored!"));
+                return;
+            }
+        }
+        // 场景 B：手里没兵 -> 把兵营里的兵放出来
+        else
+        {
+            Barracks->ReleaseAllUnits();
+            if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, TEXT("Units Released!"));
+            return;
+        }
+    }
+
+    // 尝试点击士兵 (选中)
+    ABaseUnit* ClickedUnit = Cast<ABaseUnit>(HitActor);
+    if (ClickedUnit && ClickedUnit->TeamID == ETeam::Player)
+    {
+        SelectedUnit = ClickedUnit;
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, FString::Printf(TEXT("Selected Unit: %s"), *ClickedUnit->GetName()));
+        return;
+    }
+
+    // 3. 点击空地 -> 取消选中
+    SelectedUnit = nullptr;
 }
 
 // 请求升级

@@ -71,6 +71,14 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_Remove;
 
+	// 升级按钮
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_Upgrade;
+
+	UPROPERTY(meta = (BindWidget))
+		UTextBlock* Text_UpgradeCost; // 显示 "Upgrade (500 G)"
+
+	
 
 
 	// --- 点击事件处理 ---
@@ -84,6 +92,8 @@ protected:
 	UFUNCTION()	void OnClickBuildElixir();
 	UFUNCTION()	void OnClickBuildWall();
 	UFUNCTION()	void OnClickBuildBarracks();
+
+	UFUNCTION()	void OnClickUpgrade();
 
 	UFUNCTION() void OnClickStartBattle();
 	UFUNCTION() void OnClickRemove();

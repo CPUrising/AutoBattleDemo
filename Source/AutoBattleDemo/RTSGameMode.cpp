@@ -563,3 +563,38 @@ void ARTSGameMode::CheckWinCondition()
     }
 }
 
+bool ARTSGameMode::TryUpgradeBuilding(ABaseBuilding* BuildingToUpgrade)
+{
+    if (!BuildingToUpgrade) return false;
+    if (CurrentState != EGameState::Preparation) return false; // 只有备战期能升级
+
+    // 1. 检查是否满级
+    if (!BuildingToUpgrade->CanUpgrade())
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Max Level Reached!"));
+        return false;
+    }
+
+    // 2. 获取费用
+    int32 GoldCost = 0;
+    int32 ElixirCost = 0;
+    BuildingToUpgrade->GetUpgradeCost(GoldCost, ElixirCost);
+
+    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+    if (!GI) return false;
+
+    // 3. 检查资源
+    if (GI->PlayerGold < GoldCost)
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Not Enough Gold to Upgrade!"));
+        return false;
+    }
+
+    // 4. 执行升级
+    GI->PlayerGold -= GoldCost;
+
+    BuildingToUpgrade->LevelUp(); // 调用建筑自己的升级逻辑(加血/变大)
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Green, TEXT("Upgrade Successful!"));
+    return true;
+}

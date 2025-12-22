@@ -31,6 +31,14 @@ public:
     UFUNCTION(BlueprintCallable)
         void HandleLeftClick();
 
+    // 供 HUD 调用：执行升级
+    UFUNCTION(BlueprintCallable)
+        void RequestUpgradeSelectedBuilding();
+
+    // 供 HUD 获取：当前选中的建筑 (用于显示信息)
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseBuilding* SelectedBuilding;
+
     // 选择移除模式
     UFUNCTION(BlueprintCallable)
         void OnSelectRemoveMode();

@@ -303,7 +303,7 @@ void ARTSPlayerController::HandleRemoveMode(AActor* HitActor, AGridManager* Grid
 
 void ARTSPlayerController::HandleNormalMode(AActor* HitActor)
 {
-    // 尝试点击资源建筑
+    // 1. 尝试点击资源建筑 (收集资源) - 保持原样
     ABuilding_Resource* ResBuilding = Cast<ABuilding_Resource>(HitActor);
     if (ResBuilding)
     {
@@ -313,15 +313,42 @@ void ARTSPlayerController::HandleNormalMode(AActor* HitActor)
             URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
             if (GI)
             {
-                if (ResBuilding->bProducesGold)
-                    GI->PlayerGold += Amount;
-                else
-                    GI->PlayerElixir += Amount;
+                if (ResBuilding->bProducesGold) GI->PlayerGold += Amount;
+                else GI->PlayerElixir += Amount;
             }
+            // return; // 如果收集了资源，就不算选中操作了(可选)
         }
     }
 
-    // (未来可以在这里扩展：点击士兵显示血条信息等)
+    // 2. 选中逻辑
+    // 如果点击的是一个建筑 (且属于玩家)
+    ABaseBuilding* ClickedBuilding = Cast<ABaseBuilding>(HitActor);
+    if (ClickedBuilding && ClickedBuilding->TeamID == ETeam::Player)
+    {
+        SelectedBuilding = ClickedBuilding;
+
+        // 打印日志
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Cyan,
+            FString::Printf(TEXT("Selected: %s (Lv.%d)"), *ClickedBuilding->GetName(), ClickedBuilding->BuildingLevel));
+    }
+    else
+    {
+        // 点击了地板或敌人 -> 取消选中
+        SelectedBuilding = nullptr;
+    }
+}
+
+// 请求升级
+void ARTSPlayerController::RequestUpgradeSelectedBuilding()
+{
+    if (SelectedBuilding)
+    {
+        ARTSGameMode* GM = Cast<ARTSGameMode>(GetWorld()->GetAuthGameMode());
+        if (GM)
+        {
+            GM->TryUpgradeBuilding(SelectedBuilding);
+        }
+    }
 }
 
 void ARTSPlayerController::HandleLeftClick()

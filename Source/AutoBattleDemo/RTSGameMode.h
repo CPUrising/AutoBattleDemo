@@ -54,6 +54,9 @@ public:
     // 加载并生成基地建筑
     void LoadAndSpawnBase();
 
+    // 尝试升级指定建筑
+    bool TryUpgradeBuilding(class ABaseBuilding* BuildingToUpgrade);
+
 protected:
     UPROPERTY(BlueprintReadOnly, Category = "GameFlow")
         EGameState CurrentState;

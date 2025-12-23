@@ -87,8 +87,8 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Combat")
         TSubclassOf<class ARTSProjectile> ProjectileClass;
 
-    // 重新寻路时间
-    float RetargetTimer;
+    // 重寻路计时器
+    float PathUpdateTimer;
 
     // --- 攻击动画变量 ---
     bool bIsLunging; // 是否正在执行冲撞动作

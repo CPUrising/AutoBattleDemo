@@ -83,16 +83,16 @@ protected:
 
     // --- 兵种蓝图配置 (Classes|Units) ---
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
-        TSubclassOf<class ABaseUnit> BarbarianClass; // 对应 Soldier/Barbarian
+        TSubclassOf<class ABaseUnit> BarbarianClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
         TSubclassOf<class ABaseUnit> ArcherClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
-        TSubclassOf<class ABaseUnit> GiantClass;     // 新增
+        TSubclassOf<class ABaseUnit> GiantClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Units")
-        TSubclassOf<class ABaseUnit> BomberClass;    // 新增
+        TSubclassOf<class ABaseUnit> BomberClass;
 
         // --- 建筑蓝图配置 (Classes|Buildings) ---
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
@@ -102,13 +102,13 @@ protected:
         TSubclassOf<class ABaseBuilding> GoldMineClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
-        TSubclassOf<class ABaseBuilding> ElixirPumpClass; // 新增
+        TSubclassOf<class ABaseBuilding> ElixirPumpClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
-        TSubclassOf<class ABaseBuilding> WallClass;       // 新增
+        TSubclassOf<class ABaseBuilding> WallClass;
 
     UPROPERTY(EditDefaultsOnly, Category = "Classes|Buildings")
-        TSubclassOf<class ABaseBuilding> HQClass;         // 大本营
+        TSubclassOf<class ABaseBuilding> HQClass;
 
     // --- 关卡数据 (可选，用于加载敌人配置) ---
     UPROPERTY(EditDefaultsOnly, Category = "Level Setup")

@@ -74,6 +74,9 @@ void ABaseUnit::BeginPlay()
         OriginalMeshOffset = MeshComp->GetRelativeLocation();
     }
     bIsLunging = false;
+
+    // 随机化移动速度 (+/- 15%)
+    MoveSpeed *= FMath::RandRange(0.85f, 1.15f);
 }
 
 void ABaseUnit::Tick(float DeltaTime)
@@ -85,64 +88,79 @@ void ABaseUnit::Tick(float DeltaTime)
     switch (CurrentState)
     {
     case EUnitState::Idle:
-        // 倒计时
-        if (RetargetTimer > 0.0f)
+        if (!CurrentTarget)
         {
-            RetargetTimer -= DeltaTime;
+            CurrentTarget = FindClosestTarget();
+            if (CurrentTarget && GridManagerRef)
+            {
+                RequestPathToTarget();
+                if (PathPoints.Num() > 0) CurrentState = EUnitState::Moving;
+            }
         }
         else
         {
-            // 只有计时器归零才思考
-            RetargetTimer = 1.0f; // 每 1 秒思考一次，防止卡顿
-
-            if (!CurrentTarget)
-            {
-                CurrentTarget = FindClosestTarget();
-            }
-
-            if (CurrentTarget)
-            {
-                float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-                if (Dist <= AttackRange)
-                {
-                    CurrentState = EUnitState::Attacking;
-                }
-                else
-                {
-                    RequestPathToTarget();
-                    // 如果寻路成功，切换状态；如果失败，继续保持 Idle，等下一秒再试
-                    if (PathPoints.Num() > 0)
-                    {
-                        CurrentState = EUnitState::Moving;
-                    }
-                }
-            }
+            // 检查目标有效性
+            ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
+            if (!TargetEntity || TargetEntity->CurrentHealth <= 0) CurrentTarget = nullptr;
         }
         break;
 
     case EUnitState::Moving:
-        if (PathPoints.Num() > 0)
+        // 在 Moving 状态下，真正的移动逻辑在下面统一处理
+        // 这里只负责检查是否需要切换状态
+        if (CurrentTarget)
         {
-            MoveAlongPath(DeltaTime);
+            float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
 
-            // 移动中也要时刻检查是否已经进入攻击范围 (防止走到脸贴脸才停)
-            if (CurrentTarget)
+            float ActualDistToTarget = 0.0f;
+
+            // 使用物理碰撞表面的最近点来计算距离
+            FVector MyLoc = GetActorLocation();
+            FVector TargetLoc = CurrentTarget->GetActorLocation();
+
+            // 尝试找目标的碰撞体 (PrimitiveComponent)
+            UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+            if (!TargetPrim)
             {
-                float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-                if (Distance <= AttackRange)
-                {
-                    CurrentState = EUnitState::Attacking;
-                    PathPoints.Empty();
-                }
+                // 如果根组件不是碰撞体，尝试找 Mesh
+                TargetPrim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
+            }
+
+            if (TargetPrim)
+            {
+                FVector ClosestPoint;
+                // 计算我离目标表面最近的点
+                TargetPrim->GetClosestPointOnCollision(MyLoc, ClosestPoint);
+
+                // 抹平 Z 轴差异 (只算水平距离)
+                ClosestPoint.Z = MyLoc.Z;
+
+                ActualDistToTarget = FVector::Dist(MyLoc, ClosestPoint);
             }
             else
             {
-                CurrentState = EUnitState::Idle;
+                // 保底逻辑：如果目标没碰撞体，回退到原来的半径算法
+                float DistCenter = FVector::Dist(MyLoc, TargetLoc);
+                FVector Origin, BoxExtent;
+                CurrentTarget->GetActorBounds(false, Origin, BoxExtent);
+                float Radius = FMath::Max(BoxExtent.X, BoxExtent.Y);
+                ActualDistToTarget = FMath::Max(0.0f, DistCenter - Radius);
+            }
+
+            // [判定] 只要走进 (攻击距离 + 目标半径) 的范围内，就开始打！
+            // 这样兵就不会试图走进塔的身体里了
+            if (Dist <= (AttackRange + 10.0f))
+            {
+                CurrentState = EUnitState::Attacking;
                 PathPoints.Empty();
+
+                // 停止物理移动，防止滑步
+                // FinalVelocity = FVector::ZeroVector; (这一步在下面自动处理了)
             }
         }
         else
         {
+            // 目标丢了，停下来
             CurrentState = EUnitState::Idle;
         }
         break;
@@ -152,52 +170,107 @@ void ABaseUnit::Tick(float DeltaTime)
         break;
     }
 
-    // 防重叠与侧滑逻辑
-    if (CurrentState != EUnitState::Idle)
+    // [重写] 强力防重叠移动逻辑 (Anti-Blob Movement)
+    
+    FVector FinalVelocity = FVector::ZeroVector;
+    FVector CurrentLoc = GetActorLocation();
+
+    // 1. 计算【寻路引力】 (Seek Force)
+    // 只有在 Moving 状态才产生向前的力
+    if (CurrentState == EUnitState::Moving && PathPoints.Num() > 0 && CurrentPathIndex < PathPoints.Num())
     {
-        TArray<FOverlapResult> Overlaps;
-        FCollisionQueryParams Params;
-        Params.AddIgnoredActor(this);
+        FVector TargetPoint = PathPoints[CurrentPathIndex];
+        TargetPoint.Z = CurrentLoc.Z; // 抹平高度
 
-        // 稍微加大检测范围
-        bool bHit = GetWorld()->OverlapMultiByChannel(
-            Overlaps,
-            GetActorLocation(),
-            FQuat::Identity,
-            ECC_Pawn,
-            FCollisionShape::MakeSphere(60.0f),
-            Params
-        );
+        FVector SeekDir = (TargetPoint - CurrentLoc).GetSafeNormal();
 
-        if (bHit)
+        // 检查到达
+        if (FVector::DistSquared2D(CurrentLoc, TargetPoint) < 900.0f) // 30cm
         {
-            FVector SeparationForce = FVector::ZeroVector;
-            int32 NeighborCount = 0;
+            CurrentPathIndex++;
+        }
 
-            for (const FOverlapResult& Res : Overlaps)
+        // 基础移动力
+        FinalVelocity += SeekDir * MoveSpeed;
+    }
+
+    // 2. 计算【强力避让】 (Hard Separation)
+    // 无论什么状态，只要重叠了，就必须推开！
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(this);
+
+    // 搜索半径设为 80 (比胶囊体稍大，形成安全气囊)
+    bool bHit = GetWorld()->OverlapMultiByChannel(
+        Overlaps, CurrentLoc, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(80.0f), Params
+    );
+
+    if (bHit)
+    {
+        FVector SeparationVec = FVector::ZeroVector;
+        int32 SeparationCount = 0;
+
+        for (const FOverlapResult& Res : Overlaps)
+        {
+            ABaseUnit* OtherUnit = Cast<ABaseUnit>(Res.GetActor());
+            // 只推开活着的单位 (包括敌人)
+            if (OtherUnit && OtherUnit->CurrentHealth > 0)
             {
-                ABaseUnit* OtherUnit = Cast<ABaseUnit>(Res.GetActor());
-                if (OtherUnit && OtherUnit->CurrentHealth > 0)
-                {
-                    FVector Dir = GetActorLocation() - OtherUnit->GetActorLocation();
-                    Dir.Z = 0;
-                    float Dist = Dir.Size();
+                FVector Dir = CurrentLoc - OtherUnit->GetActorLocation();
+                Dir.Z = 0; // 绝对不要在垂直方向产生力！
 
-                    // 距离越近，推力指数级增大
-                    if (Dist > 0.1f)
-                    {
-                        SeparationForce += Dir.GetSafeNormal() * (500.0f / Dist);
-                        NeighborCount++;
-                    }
+                float Dist = Dir.Size();
+
+                // 如果距离太近 (重叠了)
+                if (Dist < 80.0f)
+                {
+                    // 距离越近，推力呈指数级增长
+                    // 如果 Dist 是 1，推力就是 80
+                    // 如果 Dist 是 80，推力就是 1
+                    float PushStrength = (80.0f - Dist) / (Dist + 0.1f); // +0.1防止除以0
+
+                    // 这里的 5000.0f 是一个巨大的系数，确保推力远大于寻路力
+                    SeparationVec += Dir.GetSafeNormal() * PushStrength * 5000.0f;
+                    SeparationCount++;
                 }
             }
+        }
 
-            if (NeighborCount > 0)
-            {
-                // 推力系数
-                FVector FinalPush = SeparationForce.GetClampedToMaxSize(2.0f);
-                AddActorWorldOffset(FinalPush * 200.0f * DeltaTime);
-            }
+        // 如果发生了重叠，叠加这个巨大的推力
+        if (SeparationCount > 0)
+        {
+            FinalVelocity += SeparationVec;
+        }
+    }
+
+    // 3. 执行移动
+    // 使用 AddActorWorldOffset 并开启 Sweep，防止穿墙
+    if (!FinalVelocity.IsNearlyZero())
+    {
+        // 限制最大速度，防止飞出去
+        // 正常移动速度是 300，这里允许瞬间被推开的速度稍微快一点(比如600)，但不允许无限大
+        FinalVelocity = FinalVelocity.GetClampedToMaxSize(MoveSpeed * 2.0f);
+
+        // 抹除 Z 轴，最后一道防线
+        FinalVelocity.Z = 0.0f;
+
+        FHitResult MoveHit;
+        AddActorWorldOffset(FinalVelocity * DeltaTime, true, &MoveHit);
+
+        // 如果被墙挡住了，把剩余的速度沿着墙面滑行 (SlideAlongSurface)
+        if (MoveHit.IsValidBlockingHit())
+        {
+            FVector Normal = MoveHit.Normal;
+            FVector SlideDir = FVector::VectorPlaneProject(FinalVelocity, Normal);
+            AddActorWorldOffset(SlideDir * DeltaTime, true);
+        }
+
+        // 旋转朝向 (只在有明显位移时转头)
+        if (FinalVelocity.SizeSquared() > 100.0f)
+        {
+            FRotator TargetRot = FinalVelocity.Rotation();
+            FRotator NewRot = FMath::RInterpTo(GetActorRotation(), TargetRot, DeltaTime, 10.0f);
+            SetActorRotation(NewRot);
         }
     }
 
@@ -268,13 +341,30 @@ AActor* ABaseUnit::FindClosestTarget()
         {
             float Distance = FVector::Dist(GetActorLocation(), Entity->GetActorLocation());
 
-            // 如果已经在攻击范围内，直接锁定，不用找更近的了
-            if (Distance <= AttackRange)
+            // 计算体积半径 (Mesh 优先)
+            float TargetRadius = 0.0f;
+            UStaticMeshComponent* TargetMesh = Entity->FindComponentByClass<UStaticMeshComponent>();
+
+            if (TargetMesh)
             {
-                return Entity;
+                // 如果有 Mesh，用 Mesh 的边界
+                FVector BoxExtent = TargetMesh->Bounds.BoxExtent;
+                TargetRadius = FMath::Max(BoxExtent.X, BoxExtent.Y);
+            }
+            else
+            {
+                // 如果没有 Mesh，回退到 Actor 边界 (参数设为 false，只算根组件)
+                FVector Origin, BoxExtent;
+                Entity->GetActorBounds(false, Origin, BoxExtent);
+                TargetRadius = FMath::Max(BoxExtent.X, BoxExtent.Y);
             }
 
-            // 找最近的
+            // 使用边缘距离判定
+            if (Distance <= (AttackRange + TargetRadius))
+            {
+                return Entity; // 就在脸上了，直接打
+            }
+
             if (Distance < ClosestDistance)
             {
                 ClosestDistance = Distance;
@@ -318,6 +408,26 @@ void ABaseUnit::RequestPathToTarget()
     }
     */
 
+    // 路径抖动 (Path Jitter)
+    // 给每个路径点加一个随机偏移，让大家不要走成一条直线
+    if (PathPoints.Num() > 0)
+    {
+        // 生成一个固定的随机种子，或者针对每个兵生成不同的偏移
+        // 偏移量不要太大，最好小于格子大小的一半 (GridSize 100 -> Offset < 50)
+        float JitterAmount = 40.0f;
+
+        for (int32 i = 0; i < PathPoints.Num() - 1; i++) // 最后一个点(终点)通常不偏移，保证能走到目标跟前
+        {
+            float RandomX = FMath::RandRange(-JitterAmount, JitterAmount);
+            float RandomY = FMath::RandRange(-JitterAmount, JitterAmount);
+
+            PathPoints[i].X += RandomX;
+            PathPoints[i].Y += RandomY;
+
+            // Z轴保持不变，防止入土
+        }
+    }
+
     // 简单的路径平滑：如果第一个点就在脚下，直接跳过
     if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 2500.0f)
     {
@@ -325,91 +435,91 @@ void ABaseUnit::RequestPathToTarget()
     }
 }
 
-void ABaseUnit::MoveAlongPath(float DeltaTime)
-{
-    if (PathPoints.Num() == 0 || CurrentPathIndex >= PathPoints.Num()) { CurrentState = EUnitState::Idle; return; }
-    if (!CurrentTarget || CurrentTarget->IsPendingKill()) { CurrentState = EUnitState::Idle; CurrentTarget = nullptr; PathPoints.Empty(); return; }
-
-    FVector TargetPoint = PathPoints[CurrentPathIndex];
-    FVector CurrentLocation = GetActorLocation();
-
-    // 1. 抹平 Z 轴
-    TargetPoint.Z = CurrentLocation.Z;
-
-    // 2. 计算方向
-    FVector Direction = (TargetPoint - CurrentLocation).GetSafeNormal();
-
-    // [关键] 强制 Z 为 0，绝对防止钻地
-    Direction.Z = 0.0f;
-
-    // 3. 物理移动
-    FHitResult Hit;
-    AddActorWorldOffset(Direction * MoveSpeed * DeltaTime, true, &Hit);
-
-    // 4. 撞墙处理
-    if (Hit.bBlockingHit)
-    {
-        AActor* HitActor = Hit.GetActor();
-        ABaseUnit* HitUnit = Cast<ABaseUnit>(HitActor);
-        // 如果撞到敌人，且我是普通兵，打它
-        if (HitUnit && HitUnit->TeamID != this->TeamID && HitUnit->CurrentHealth > 0)
-        {
-            if (UnitType != EUnitType::Giant && UnitType != EUnitType::Bomber)
-            {
-                CurrentTarget = HitUnit;
-                CurrentState = EUnitState::Attacking;
-                PathPoints.Empty();
-                return;
-            }
-        }
-    }
-
-    // 5. 旋转
-    if (!Direction.IsNearlyZero())
-    {
-        FRotator NewRot = FMath::RInterpTo(GetActorRotation(), Direction.Rotation(), DeltaTime, 10.0f);
-        SetActorRotation(NewRot);
-    }
-
-    // 6. [修复] 到达判定
-    float DistanceToPoint = FVector::DistSquared2D(CurrentLocation, TargetPoint);
-
-    // 如果是脱困模式，必须走得准一点 (10cm)，防止还没走出包围圈就停了
-    // 正常模式可以宽一点 (30cm)
-    float AcceptanceRadiusSq = bIsUnstucking ? 100.0f : 900.0f;
-
-    if (DistanceToPoint < AcceptanceRadiusSq)
-    {
-        CurrentPathIndex++;
-
-        // 路径走完了，判断是否能打到目标
-        if (CurrentPathIndex >= PathPoints.Num())
-        {
-            if (CurrentTarget)
-            {
-                float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-                if (Distance <= AttackRange + 100.0f) // 稍微宽容一点+100
-                {
-                    CurrentState = EUnitState::Attacking;
-                    UE_LOG(LogTemp, Warning, TEXT("[Unit] %s path complete, starting attack!"), *GetName());
-                }
-                else
-                {
-                    // 还没走到，重新寻路
-                    RequestPathToTarget();
-                    if (PathPoints.Num() == 0)
-                    {
-                        CurrentState = EUnitState::Idle;
-                    }
-                }
-            }
-            else
-            {
-                CurrentState = EUnitState::Idle;
-            }
-        }
-    }
-}
+//void ABaseUnit::MoveAlongPath(float DeltaTime)
+//{
+//    if (PathPoints.Num() == 0 || CurrentPathIndex >= PathPoints.Num()) { CurrentState = EUnitState::Idle; return; }
+//    if (!CurrentTarget || CurrentTarget->IsPendingKill()) { CurrentState = EUnitState::Idle; CurrentTarget = nullptr; PathPoints.Empty(); return; }
+//
+//    FVector TargetPoint = PathPoints[CurrentPathIndex];
+//    FVector CurrentLocation = GetActorLocation();
+//
+//    // 1. 抹平 Z 轴
+//    TargetPoint.Z = CurrentLocation.Z;
+//
+//    // 2. 计算方向
+//    FVector Direction = (TargetPoint - CurrentLocation).GetSafeNormal();
+//
+//    // [关键] 强制 Z 为 0，绝对防止钻地
+//    Direction.Z = 0.0f;
+//
+//    // 3. 物理移动
+//    FHitResult Hit;
+//    AddActorWorldOffset(Direction * MoveSpeed * DeltaTime, true, &Hit);
+//
+//    // 4. 撞墙处理
+//    if (Hit.bBlockingHit)
+//    {
+//        AActor* HitActor = Hit.GetActor();
+//        ABaseUnit* HitUnit = Cast<ABaseUnit>(HitActor);
+//        // 如果撞到敌人，且我是普通兵，打它
+//        if (HitUnit && HitUnit->TeamID != this->TeamID && HitUnit->CurrentHealth > 0)
+//        {
+//            if (UnitType != EUnitType::Giant && UnitType != EUnitType::Bomber)
+//            {
+//                CurrentTarget = HitUnit;
+//                CurrentState = EUnitState::Attacking;
+//                PathPoints.Empty();
+//                return;
+//            }
+//        }
+//    }
+//
+//    // 5. 旋转
+//    if (!Direction.IsNearlyZero())
+//    {
+//        FRotator NewRot = FMath::RInterpTo(GetActorRotation(), Direction.Rotation(), DeltaTime, 10.0f);
+//        SetActorRotation(NewRot);
+//    }
+//
+//    // 6. [修复] 到达判定
+//    float DistanceToPoint = FVector::DistSquared2D(CurrentLocation, TargetPoint);
+//
+//    // 如果是脱困模式，必须走得准一点 (10cm)，防止还没走出包围圈就停了
+//    // 正常模式可以宽一点 (30cm)
+//    float AcceptanceRadiusSq = bIsUnstucking ? 100.0f : 900.0f;
+//
+//    if (DistanceToPoint < AcceptanceRadiusSq)
+//    {
+//        CurrentPathIndex++;
+//
+//        // 路径走完了，判断是否能打到目标
+//        if (CurrentPathIndex >= PathPoints.Num())
+//        {
+//            if (CurrentTarget)
+//            {
+//                float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+//                if (Distance <= AttackRange + 200.0f)
+//                {
+//                    CurrentState = EUnitState::Attacking;
+//                    UE_LOG(LogTemp, Warning, TEXT("[Unit] %s path complete, starting attack!"), *GetName());
+//                }
+//                else
+//                {
+//                    // 还没走到，重新寻路
+//                    RequestPathToTarget();
+//                    if (PathPoints.Num() == 0)
+//                    {
+//                        CurrentState = EUnitState::Idle;
+//                    }
+//                }
+//            }
+//            else
+//            {
+//                CurrentState = EUnitState::Idle;
+//            }
+//        }
+//    }
+//}
 
 void ABaseUnit::PerformAttack()
 {
@@ -419,17 +529,28 @@ void ABaseUnit::PerformAttack()
         return;
     }
 
-    ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
-    if (!TargetEntity || TargetEntity->CurrentHealth <= 0)
+    float ActualDistToTarget = FLT_MAX;
+    UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+    if (!TargetPrim) TargetPrim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
+
+    if (TargetPrim)
     {
-        UE_LOG(LogTemp, Log, TEXT("[Unit] %s target destroyed during attack"), *GetName());
-        CurrentTarget = nullptr;
-        CurrentState = EUnitState::Idle;
-        return;
+        FVector ClosestPoint;
+        TargetPrim->GetClosestPointOnCollision(GetActorLocation(), ClosestPoint);
+        ClosestPoint.Z = GetActorLocation().Z;
+        ActualDistToTarget = FVector::Dist(GetActorLocation(), ClosestPoint);
+    }
+    else
+    {
+        // 保底逻辑...
+        float DistCenter = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+        FVector Origin, BoxExtent;
+        CurrentTarget->GetActorBounds(false, Origin, BoxExtent);
+        ActualDistToTarget = FMath::Max(0.0f, DistCenter - FMath::Max(BoxExtent.X, BoxExtent.Y));
     }
 
-    float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-    if (Distance > AttackRange)
+    // 宽松的攻击判定 (增加 50.0f 的缓冲，防止并在边缘鬼畜切换状态)
+    if (ActualDistToTarget > (AttackRange + 50.0f))
     {
         RequestPathToTarget();
         if (PathPoints.Num() > 0)

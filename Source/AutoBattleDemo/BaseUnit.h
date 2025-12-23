@@ -59,7 +59,7 @@ protected:
 
     void RequestPathToTarget();
 
-    void MoveAlongPath(float DeltaTime);
+    // void MoveAlongPath(float DeltaTime);
 
     virtual void PerformAttack();
 

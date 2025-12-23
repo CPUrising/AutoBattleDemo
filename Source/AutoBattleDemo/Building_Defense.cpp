@@ -33,7 +33,7 @@ void ABuilding_Defense::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
 
     // 绘制攻击范围（调试用）
-    DrawAttackRange();
+    // DrawAttackRange();
 
     // 如果没有目标或目标失效，寻找新目标
     if (!CurrentTarget || CurrentTarget->IsPendingKill())
@@ -164,17 +164,17 @@ void ABuilding_Defense::ApplyLevelUpBonus()
         *GetName(), Damage, AttackRange);
 }
 
-void ABuilding_Defense::DrawAttackRange()
-{
-    // 每0.5秒绘制一次范围圈（调试用）
-    static float LastDrawTime = 0.0f;
-    float CurrentTime = GetWorld()->GetTimeSeconds();
-
-    if (CurrentTime - LastDrawTime > 0.5f)
-    {
-        DrawDebugCircle(GetWorld(), GetActorLocation(), AttackRange,
-            32, FColor::Red, false, 0.6f, 0, 5.0f,
-            FVector(0, 1, 0), FVector(1, 0, 0), false);
-        LastDrawTime = CurrentTime;
-    }
-}
+//void ABuilding_Defense::DrawAttackRange()
+//{
+//    // 每0.5秒绘制一次范围圈（调试用）
+//    static float LastDrawTime = 0.0f;
+//    float CurrentTime = GetWorld()->GetTimeSeconds();
+//
+//    if (CurrentTime - LastDrawTime > 0.5f)
+//    {
+//        DrawDebugCircle(GetWorld(), GetActorLocation(), AttackRange,
+//            32, FColor::Red, false, 0.6f, 0, 5.0f,
+//            FVector(0, 1, 0), FVector(1, 0, 0), false);
+//        LastDrawTime = CurrentTime;
+//    }
+//}

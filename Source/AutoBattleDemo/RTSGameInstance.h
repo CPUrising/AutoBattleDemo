@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
+#include "RTSCoreTypes.h"
 #include "RTSGameInstance.generated.h"
 
 UCLASS()
@@ -21,10 +22,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player Data")
         int32 PlayerElixir = 5000;
 
-        // 人口
+    // 人口
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player Data")
         int32 CurrentPopulation = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player Data")
-        int32 MaxPopulation = 20;
+        int32 MaxPopulation = 0; // 初始为0，全靠 HQ 和 兵营 提供
+
+    // 玩家的军队阵容
+    UPROPERTY(BlueprintReadWrite, Category = "SaveData")
+        TArray<FUnitSaveData> PlayerArmy;
+
+    // 保存基地建筑布局
+    UPROPERTY(BlueprintReadWrite, Category = "SaveData")
+        TArray<FBuildingSaveData> SavedBuildings;
+
+    // 标记：是否已经初始化过基地？(防止第一次运行把预设的删了)
+    bool bHasSavedBase = false;
 };

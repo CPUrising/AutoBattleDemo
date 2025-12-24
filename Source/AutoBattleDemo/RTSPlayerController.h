@@ -1,9 +1,10 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
-#include "RTSCoreTypes.h" // 引用枚举
+#include "RTSCoreTypes.h"
 #include "RTSPlayerController.generated.h"
 
+class AGridManager;
 class URTSMainHUD;
 
 UCLASS()
@@ -14,48 +15,95 @@ public:
     ARTSPlayerController();
     virtual void Tick(float DeltaTime) override;
     virtual void SetupInputComponent() override;
-
-    // --- 新增：覆盖 BeginPlay (用来创建 UI) ---
     virtual void BeginPlay() override;
 
     // --- 交互逻辑 ---
 
-    // 玩家点击了UI上的“购买步兵”
+    // 玩家点击了UI上的“购买单位”
     UFUNCTION(BlueprintCallable)
         void OnSelectUnitToPlace(EUnitType UnitType);
 
-    // 鼠标点击左键 (在 Blueprint 中绑定 Input Action: LeftClick)
+    // 玩家点击了UI上的“建造建筑”
+    UFUNCTION(BlueprintCallable)
+        void OnSelectBuildingToPlace(EBuildingType BuildingType);
+
+    // 鼠标点击左键
     UFUNCTION(BlueprintCallable)
         void HandleLeftClick();
 
-private:
-    // 当前正在“拖拽/悬停”准备放置的单位类型
-    EUnitType PendingUnitType;
-    bool bIsPlacingUnit;
+    // 供 HUD 调用：执行升级
+    UFUNCTION(BlueprintCallable)
+        void RequestUpgradeSelectedBuilding();
 
-    // 一个临时的 Actor，跟着鼠标跑，显示预览效果
-    UPROPERTY()
-        AActor* PlacementPreviewActor;
+    // 供 HUD 获取：当前选中的建筑 (用于显示信息)
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseBuilding* SelectedBuilding;
+
+    // 选择移除模式
+    UFUNCTION(BlueprintCallable)
+        void OnSelectRemoveMode();
+
+    // 新增：当前选中的我方单位
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseUnit* SelectedUnit;
+
+    // 尝试取消当前操作
+    // 返回 true 表示成功取消了某个操作
+    // 返回 false 表示当前没事可做
+    bool CancelCurrentAction();
 
 protected:
-    // --- UI 配置 ---
-
-    // 1. 暴露给编辑器：请在这里选择 WBP_RTSMain
+    // UI 配置
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
         TSubclassOf<URTSMainHUD> MainHUDClass;
 
-    // 2. 内部持有：创建出来的 UI 实例
+    // 战斗 UI 配置
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
+        TSubclassOf<UUserWidget> BattleHUDClass; // 战斗用的 UI 模板
+
     UPROPERTY()
         URTSMainHUD* MainHUDInstance;
 
-    // 幽灵 Actor 的实例
+    // 幽灵 Actor
     UPROPERTY()
         AActor* PreviewGhostActor;
 
-    // 可以在蓝图里配置：预览用的模型 Actor 类 (比如一个只有半透明圆柱体的 Actor)
+
+    // 兵种的幽灵
     UPROPERTY(EditDefaultsOnly, Category = "UI")
         TSubclassOf<AActor> PlacementPreviewClass;
 
+    // 建筑的幽灵
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+        TSubclassOf<AActor> PlacementPreviewBuildingClass;
+
     // 辅助函数：更新幽灵位置
     void UpdatePlacementGhost();
+
+    // 用于幽灵材质切换
+    UPROPERTY(EditDefaultsOnly, Category = "UI|Placement")
+        class UMaterialInterface* ValidPlacementMaterial; // 合法放置时的材质
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI|Placement")
+        UMaterialInterface* InvalidPlacementMaterial; // 非法放置时的材质
+
+
+
+
+
+private:
+    // 当前状态数据
+    EUnitType PendingUnitType;
+    EBuildingType PendingBuildingType;
+
+    bool bIsPlacingUnit;
+    bool bIsPlacingBuilding;
+
+    // 是否处于移除模式
+    bool bIsRemoving;
+
+    // 逻辑拆分
+    void HandlePlacementMode(const FHitResult& Hit, AGridManager* GridManager);
+    void HandleRemoveMode(AActor* HitActor, AGridManager* GridManager);
+    void HandleNormalMode(AActor* HitActor);
 };

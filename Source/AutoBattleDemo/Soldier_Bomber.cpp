@@ -4,6 +4,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
 #include "BaseUnit.h"
+#include "Particles/ParticleSystem.h"
 
 ASoldier_Bomber::ASoldier_Bomber()
 {
@@ -29,7 +30,7 @@ void ASoldier_Bomber::BeginPlay()
         *GetName(), ExplosionDamage, ExplosionRadius);
 }
 
-AActor* ASoldier_Bomber::FindClosestEnemyBuilding()
+AActor* ASoldier_Bomber::FindClosestTarget()
 {
     TArray<AActor*> AllBuildings;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
@@ -129,9 +130,23 @@ void ASoldier_Bomber::SuicideAttack()
 {
     FVector ExplosionCenter = GetActorLocation();
 
+    // 播放视觉特效
+    if (ExplosionVFX)
+    {
+        // 在当前位置生成粒子
+        // FVector(3.0f) 是缩放比例，让爆炸看起来大一点
+        UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ExplosionVFX, ExplosionCenter, FRotator::ZeroRotator, FVector(3.0f));
+    }
+
+    // 2. 播放声音
+    /*if (ExplosionSound)
+    {
+        UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, ExplosionCenter);
+    }*/
+
     // 绘制爆炸范围
-    DrawDebugSphere(GetWorld(), ExplosionCenter, ExplosionRadius,
-        16, FColor::Orange, false, 3.0f, 0, 5.0f);
+    /*DrawDebugSphere(GetWorld(), ExplosionCenter, ExplosionRadius,
+        16, FColor::Orange, false, 3.0f, 0, 5.0f);*/
 
     // 对范围内所有建筑造成伤害
     TArray<AActor*> AllBuildings;

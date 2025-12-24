@@ -1,4 +1,7 @@
 #include "Soldier_Archer.h"
+#include "RTSProjectile.h" 
+#include "BaseBuilding.h"
+#include "Components/StaticMeshComponent.h" // 必须引用
 
 ASoldier_Archer::ASoldier_Archer()
 {
@@ -37,9 +40,29 @@ void ASoldier_Archer::PerformAttack()
         return;
     }
 
-    float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+    // 使用表面距离判定 (Surface Distance)
+    float DistToSurface = FLT_MAX;
 
-    if (Distance > AttackRange)
+    // 1. 尝试找目标的物理组件
+    UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+    if (!TargetPrim) TargetPrim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
+
+    if (TargetPrim)
+    {
+        FVector ClosestPt;
+        // 获取最近点
+        TargetPrim->GetClosestPointOnCollision(GetActorLocation(), ClosestPt);
+        ClosestPt.Z = GetActorLocation().Z; // 抹平高度
+        DistToSurface = FVector::Dist(GetActorLocation(), ClosestPt);
+    }
+    else
+    {
+        // 保底：中心距离
+        DistToSurface = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+    }
+
+    // 检查距离：如果超出了 (射程 + 缓冲)，重新追击
+    if (DistToSurface > (AttackRange + 50.0f))
     {
         RequestPathToTarget();
         if (PathPoints.Num() > 0)
@@ -49,23 +72,31 @@ void ASoldier_Archer::PerformAttack()
         return;
     }
 
+    // 执行攻击
     float CurrentTime = GetWorld()->GetTimeSeconds();
     if (CurrentTime - LastAttackTime >= AttackInterval)
     {
-        FDamageEvent DamageEvent;
-        CurrentTarget->TakeDamage(Damage, DamageEvent, nullptr, this);
         LastAttackTime = CurrentTime;
 
-        FVector Direction = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-        if (!Direction.IsNearlyZero())
+        // 生成投射物
+        if (ProjectileClass)
         {
-            FRotator NewRotation = Direction.Rotation();
-            NewRotation.Pitch = 0;
-            NewRotation.Roll = 0;
-            SetActorRotation(NewRotation);
+            FVector SpawnLoc = GetActorLocation() + FVector(0, 0, 100); // 从头顶发射
+            FRotator SpawnRot = (CurrentTarget->GetActorLocation() - SpawnLoc).Rotation();
+
+            ARTSProjectile* Arrow = GetWorld()->SpawnActor<ARTSProjectile>(ProjectileClass, SpawnLoc, SpawnRot);
+            if (Arrow)
+            {
+                Arrow->Initialize(CurrentTarget, Damage, this);
+            }
+        }
+        else
+        {
+            // 保底直接伤害
+            FDamageEvent DamageEvent;
+            CurrentTarget->TakeDamage(Damage, DamageEvent, nullptr, this);
         }
 
-        UE_LOG(LogTemp, Log, TEXT("[Archer] %s shot %s from distance %f!"),
-            *GetName(), *CurrentTarget->GetName(), Distance);
+        UE_LOG(LogTemp, Log, TEXT("Archer Fired Arrow!"));
     }
 }

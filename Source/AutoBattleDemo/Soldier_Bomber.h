@@ -26,10 +26,18 @@ public:
 
 protected:
     // 重写目标寻找：优先找墙
-    virtual AActor* FindClosestEnemyBuilding() override;
+    virtual AActor* FindClosestTarget() override;
 
     // 重写攻击：自爆逻辑
     virtual void PerformAttack() override;
+
+    // 爆炸时的特效 (粒子系统)
+    UPROPERTY(EditDefaultsOnly, Category = "Visuals")
+        class UParticleSystem* ExplosionVFX;
+
+    // [新增] 爆炸音效 (可选)
+    /*UPROPERTY(EditDefaultsOnly, Category = "Visuals")
+        class USoundBase* ExplosionSound;*/
 
 private:
     // 执行自爆

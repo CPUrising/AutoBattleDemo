@@ -55,11 +55,11 @@ public:
 protected:
     // --- 核心AI逻辑（可被子类重写） ---
 
-    virtual AActor* FindClosestEnemyBuilding();
+    virtual AActor* FindClosestTarget();
 
     void RequestPathToTarget();
 
-    void MoveAlongPath(float DeltaTime);
+    // void MoveAlongPath(float DeltaTime);
 
     virtual void PerformAttack();
 
@@ -82,4 +82,31 @@ protected:
 
     // AI 激活状态
     bool bIsActive;
+
+    // 子弹蓝图类 (在编辑器里配置 BP_Arrow)
+    UPROPERTY(EditDefaultsOnly, Category = "Combat")
+        TSubclassOf<class ARTSProjectile> ProjectileClass;
+
+    // 重寻路计时器
+    float PathUpdateTimer;
+
+    // --- 攻击动画变量 ---
+    bool bIsLunging; // 是否正在执行冲撞动作
+    float LungeTimer; // 动画计时器
+    FVector OriginalMeshOffset; // 记录模型原本的位置(比如Z=-90)
+
+    // 冲撞参数 (可以在蓝图调整)
+    UPROPERTY(EditAnywhere, Category = "Visuals")
+        float LungeDistance = 50.0f; // 向前冲多远
+
+    UPROPERTY(EditAnywhere, Category = "Visuals")
+        float LungeSpeed = 10.0f; // 冲多快
+
+    // 防卡死变量
+    //FVector LastCheckLocation; // 上次检查时的位置
+    //float StuckTimer;          // 卡住计时器
+    bool bIsUnstucking;        // 是否正在执行脱困移动
+
+    //// void PerformUnstuckManeuver();
+
 };

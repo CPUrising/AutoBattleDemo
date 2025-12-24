@@ -2,7 +2,7 @@
 #include "BaseBuilding.h"
 #include "GridManager.h"
 #include "Kismet/GameplayStatics.h"
-
+#include "Components/PrimitiveComponent.h"
 #include "EngineUtils.h"
 #include "DrawDebugHelpers.h"
 #include "Components/CapsuleComponent.h"
@@ -12,24 +12,25 @@ ABaseUnit::ABaseUnit()
 {
     PrimaryActorTick.bCanEverTick = true;
 
-    // 鍒涘缓鑳跺泭浣�
+    // 1. 创建胶囊体
     CapsuleComp = CreateDefaultSubobject<UCapsuleComponent>(TEXT("CapsuleComp"));
-    CapsuleComp->SetupAttachment(RootComponent);
-    CapsuleComp->InitCapsuleSize(40.0f, 90.0f);
+    RootComponent = CapsuleComp;
+    CapsuleComp->InitCapsuleSize(50.0f, 60.0f);
     CapsuleComp->SetCollisionProfileName(TEXT("Pawn"));
 
-    // 鍒涘缓妯″瀷
+    // 2. 创建模型
     MeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComp"));
     MeshComp->SetupAttachment(CapsuleComp);
+    MeshComp->SetRelativeLocation(FVector(0.f, 0.f, 0.f)); // 交给蓝图调整
 
-    // 榛樿灞炴��
+    // 默认属性
     MaxHealth = 100.0f;
     AttackRange = 150.0f;
     Damage = 10.0f;
     MoveSpeed = 300.0f;
     AttackInterval = 1.0f;
 
-    UnitType = EUnitType::Barbarian; // 榛樿閲庤洰浜�
+    UnitType = EUnitType::Barbarian;
     CurrentState = EUnitState::Idle;
     LastAttackTime = 0.0f;
     CurrentPathIndex = 0;
@@ -38,97 +39,131 @@ ABaseUnit::ABaseUnit()
     bIsActive = false;
 
     TeamID = ETeam::Player;
-    bIsTargetable = false;
+    bIsTargetable = true;
 }
 
 void ABaseUnit::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 鑾峰彇 GridManager
-    for (TActorIterator<AGridManager> It(GetWorld()); It; ++It)
-    {
-        GridManagerRef = *It;
-        break;
-    }
-
+    // 1. 获取 GridManager
     if (!GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot find GridManager!"), *GetName());
+        GridManagerRef = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
     }
+
+    // 2. 自动激活逻辑
+    FString MapName = GetWorld()->GetMapName();
+    if (MapName.Contains("BattleField") && TeamID == ETeam::Enemy)
+    {
+        SetUnitActive(true);
+    }
+
+    // 3. 记录模型初始位置
+    if (MeshComp)
+    {
+        OriginalMeshOffset = MeshComp->GetRelativeLocation();
+    }
+    bIsLunging = false;
+
+    // 4. 随机化速度 (防止阅兵式行走)
+    MoveSpeed *= FMath::RandRange(0.85f, 1.15f);
 }
 
 void ABaseUnit::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
+    // 绘制调试信息
+    //FColor StateColor = FColor::White;
+    //switch (CurrentState)
+    //{
+    //case EUnitState::Idle: StateColor = FColor::Black; break;
+    //case EUnitState::Moving: StateColor = FColor::Green; break;
+    //case EUnitState::Attacking: StateColor = FColor::Red; break;
+    //}
+
+    //// 绘制状态指示器
+    //FVector DrawLocation = GetActorLocation() + FVector(0, 0, 100.0f);
+    //FString StateString = UEnum::GetValueAsString(CurrentState);
+    //FString TeamString = (TeamID == ETeam::Player) ? TEXT("Player") : TEXT("Enemy");
+    //FString DebugString = FString::Printf(TEXT("%s - %s"), *TeamString, *StateString);
+
+    //// 使用DrawDebugString
+    //DrawDebugString(GetWorld(), DrawLocation, DebugString, nullptr, StateColor, 0.0f, true);
+
+    //// 绘制到目标的线
+    //if (CurrentTarget && bIsActive)
+    //{
+    //    FColor LineColor = (CurrentState == EUnitState::Attacking) ? FColor::Red : FColor::Green;
+    //    DrawDebugLine(GetWorld(), GetActorLocation(), CurrentTarget->GetActorLocation(),
+    //        LineColor, false, -1.0f, 0, 2.0f);
+    //}
+
+    //// 绘制路径点
+    //if (PathPoints.Num() > 0 && CurrentState == EUnitState::Moving)
+    //{
+    //    for (int32 i = 0; i < PathPoints.Num(); i++)
+    //    {
+    //        DrawDebugSphere(GetWorld(), PathPoints[i], 20.0f, 8, FColor::Yellow, false, -1.0f, 0, 1.0f);
+    //        if (i > 0)
+    //        {
+    //            DrawDebugLine(GetWorld(), PathPoints[i - 1], PathPoints[i],
+    //                FColor::Yellow, false, -1.0f, 0, 2.0f);
+    //        }
+    //    }
+    //}
+
     if (!bIsActive) return;
 
+    // 1. 状态维护 (State Check)
     switch (CurrentState)
     {
     case EUnitState::Idle:
         if (!CurrentTarget)
         {
-            CurrentTarget = FindClosestEnemyBuilding();
-            if (CurrentTarget)
+            CurrentTarget = FindClosestTarget();
+            if (CurrentTarget && GridManagerRef)
             {
-                float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-                if (Distance <= AttackRange)
-                {
-                    CurrentState = EUnitState::Attacking;
-                    UE_LOG(LogTemp, Log, TEXT("[Unit] %s in attack range, switching to Attack"), *GetName());
-                }
-                else
-                {
-                    UE_LOG(LogTemp, Log, TEXT("[Unit] %s requesting path (distance: %f)"), *GetName(), Distance);
-                    RequestPathToTarget();
-                    if (PathPoints.Num() > 0)
-                    {
-                        CurrentState = EUnitState::Moving;
-                        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s moving with %d waypoints"),
-                            *GetName(), PathPoints.Num());
-                    }
-                    else
-                    {
-                        UE_LOG(LogTemp, Error, TEXT("[Unit] %s failed to find path!"), *GetName());
-                    }
-                }
-            }
-            else
-            {
-                // 没有找到任何敌方建筑（可能已经全部摧毁）
-                UE_LOG(LogTemp, Warning, TEXT("[Unit] %s found NO enemy buildings!"), *GetName());
+                RequestPathToTarget();
+                if (PathPoints.Num() > 0) CurrentState = EUnitState::Moving;
             }
         }
         else
         {
             ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
-            if (!TargetEntity || TargetEntity->CurrentHealth <= 0 || CurrentTarget->IsPendingKill())
-            {
-                UE_LOG(LogTemp, Log, TEXT("[Unit] %s target destroyed, searching for new target"), *GetName());
-                CurrentTarget = nullptr; // 目标失效，重新寻找
-            }
+            if (!TargetEntity || TargetEntity->CurrentHealth <= 0) CurrentTarget = nullptr;
         }
         break;
 
     case EUnitState::Moving:
-        if (PathPoints.Num() > 0)
+        if (CurrentTarget)
         {
-            MoveAlongPath(DeltaTime);
+            // --- 使用 GetClosestPointOnCollision ---
+            float DistToSurface = FLT_MAX;
+            UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+            if (!TargetPrim) TargetPrim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
 
-            if (CurrentTarget)
+            if (TargetPrim)
             {
-                float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-                if (Distance <= AttackRange)
-                {
-                    CurrentState = EUnitState::Attacking;
-                    PathPoints.Empty();
-                }
+                FVector ClosestPoint;
+                TargetPrim->GetClosestPointOnCollision(GetActorLocation(), ClosestPoint);
+                ClosestPoint.Z = GetActorLocation().Z;
+                DistToSurface = FVector::Dist(GetActorLocation(), ClosestPoint);
             }
             else
             {
-                CurrentState = EUnitState::Idle;
+                // 保底
+                DistToSurface = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+            }
+
+            // [进入门槛]：射程 + 10 (稍微宽容一点点，方便刹车)
+            if (DistToSurface <= (AttackRange + 10.0f))
+            {
+                CurrentState = EUnitState::Attacking;
                 PathPoints.Empty();
+                // 可以在这里加个日志
+                // UE_LOG(LogTemp, Log, TEXT("Enter Attack: Dist %f <= Range %f"), DistToSurface, AttackRange + 10.f);
             }
         }
         else
@@ -141,183 +176,294 @@ void ABaseUnit::Tick(float DeltaTime)
         PerformAttack();
         break;
     }
+
+    // 2. 移动计算
+
+    FVector FinalVelocity = FVector::ZeroVector;
+    FVector CurrentLoc = GetActorLocation();
+
+    // --- 力 A: 寻路/追击引力 ---
+    if (CurrentState == EUnitState::Moving)
+    {
+        FVector MoveDir = FVector::ZeroVector;
+
+        // 情况 1: 还有路径点，跟着 A* 走
+        if (PathPoints.Num() > 0 && CurrentPathIndex < PathPoints.Num())
+        {
+            FVector TargetPoint = PathPoints[CurrentPathIndex];
+            TargetPoint.Z = CurrentLoc.Z;
+            MoveDir = (TargetPoint - CurrentLoc).GetSafeNormal();
+
+            // 检查到达路点
+            if (FVector::DistSquared2D(CurrentLoc, TargetPoint) < 900.0f)
+            {
+                CurrentPathIndex++;
+            }
+        }
+        // 情况 2: [关键修复] 路径走完了/没路径，但还没打到人 -> 直奔目标！
+        else if (CurrentTarget)
+        {
+            MoveDir = (CurrentTarget->GetActorLocation() - CurrentLoc).GetSafeNormal();
+            MoveDir.Z = 0; // 锁死高度
+
+            // 调试：画一条绿线，证明正在直追
+            // DrawDebugLine(GetWorld(), CurrentLoc, CurrentTarget->GetActorLocation(), FColor::Green, false, -1, 0, 2.0f);
+        }
+
+        // 应用移动力
+        FinalVelocity += MoveDir * MoveSpeed;
+    }
+
+    // --- 力 B: 强力避让 (Separation) ---
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(this);
+
+    bool bHit = GetWorld()->OverlapMultiByChannel(
+        Overlaps, CurrentLoc, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(60.0f), Params
+    );
+
+    if (bHit)
+    {
+        FVector SeparationVec = FVector::ZeroVector;
+        for (const FOverlapResult& Res : Overlaps)
+        {
+            ABaseUnit* OtherUnit = Cast<ABaseUnit>(Res.GetActor());
+            // 推开所有活着的单位
+            if (OtherUnit && OtherUnit->CurrentHealth > 0)
+            {
+                FVector Dir = CurrentLoc - OtherUnit->GetActorLocation();
+                Dir.Z = 0;
+                float Dist = Dir.Size();
+                if (Dist < 60.0f)
+                {
+                    float PushStrength = (60.0f - Dist) / (Dist + 0.1f);
+                    SeparationVec += Dir.GetSafeNormal() * PushStrength * 5000.0f;
+                }
+            }
+        }
+        FinalVelocity += SeparationVec;
+    }
+    
+
+    if (CurrentState == EUnitState::Attacking)
+    {
+        // 减弱 90% 的推力，或者直接设为 ZeroVector
+        FinalVelocity *= 0.1f;
+    }
+
+    // --- 3. 执行移动 ---
+    if (!FinalVelocity.IsNearlyZero())
+    {
+        // 限制最大速度
+        FinalVelocity = FinalVelocity.GetClampedToMaxSize(MoveSpeed * 2.0f);
+        FinalVelocity.Z = 0.0f; // 绝对防钻地
+
+        /*FHitResult MoveHit;
+        AddActorWorldOffset(FinalVelocity * DeltaTime, true, &MoveHit);
+
+        if (MoveHit.IsValidBlockingHit())
+        {
+            // 滑动处理
+            FVector Normal = MoveHit.Normal;
+            FVector SlideDir = FVector::VectorPlaneProject(FinalVelocity, Normal);
+            AddActorWorldOffset(SlideDir * DeltaTime, true);
+        }*/
+
+        AddActorWorldOffset(FinalVelocity* DeltaTime, false);
+
+
+        // 面向移动方向
+        if (FinalVelocity.SizeSquared() > 100.0f)
+        {
+            FRotator TargetRot = FinalVelocity.Rotation();
+            FRotator NewRot = FMath::RInterpTo(GetActorRotation(), TargetRot, DeltaTime, 10.0f);
+            SetActorRotation(NewRot);
+        }
+    }
+
+    // --- 4. 攻击动画 (冲撞) ---
+    if (bIsLunging && MeshComp)
+    {
+        LungeTimer += DeltaTime * 10.0f; // 动画速度
+        float Alpha = FMath::Sin(LungeTimer);
+
+        if (LungeTimer >= PI)
+        {
+            bIsLunging = false;
+            LungeTimer = 0.0f;
+            MeshComp->SetRelativeLocation(OriginalMeshOffset);
+        }
+        else
+        {
+            FVector ForwardOffset = FVector(Alpha * 150.0f, 0.f, 0.f); // 冲 150cm
+            MeshComp->SetRelativeLocation(OriginalMeshOffset + ForwardOffset);
+        }
+    }
 }
 
 void ABaseUnit::SetUnitActive(bool bActive)
 {
     bIsActive = bActive;
-
-    if (bActive)
+    CurrentState = EUnitState::Idle;
+    if (!bActive)
     {
-        CurrentState = EUnitState::Idle;
-        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s AI ACTIVATED!"), *GetName());
-    }
-    else
-    {
-        CurrentState = EUnitState::Idle;
         CurrentTarget = nullptr;
         PathPoints.Empty();
-        UE_LOG(LogTemp, Warning, TEXT("[Unit] %s AI DEACTIVATED"), *GetName());
     }
 }
 
-AActor* ABaseUnit::FindClosestEnemyBuilding()
+AActor* ABaseUnit::FindClosestTarget()
 {
-    AActor* ClosestBuilding = nullptr;
+    AActor* ClosestActor = nullptr;
     float ClosestDistance = FLT_MAX;
 
-    TArray<AActor*> AllBuildings;
-    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
+    // 搜索所有可能的目标类型
+    TArray<AActor*> AllTargets;
 
-    for (AActor* Actor : AllBuildings)
+    // 搜索玩家建筑
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllTargets);
+
+    // 搜索玩家兵
+    TArray<AActor*> AllUnits;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseUnit::StaticClass(), AllUnits);
+    AllTargets.Append(AllUnits);
+
+    for (AActor* Actor : AllTargets)
     {
-        ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
+        ABaseGameEntity* Entity = Cast<ABaseGameEntity>(Actor);
+        if (!Entity) continue;
 
-        if (Building &&
-            Building->TeamID != this->TeamID &&
-            Building->bIsTargetable &&
-            Building->CurrentHealth > 0)
+        // 检查是否为有效目标
+        bool bIsValidTarget = false;
+
+        // 敌方兵应该攻击玩家阵营
+        if (this->TeamID == ETeam::Enemy)
         {
-            float Distance = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
+            bIsValidTarget = (Entity->TeamID == ETeam::Player);
+        }
+        // 玩家兵应该攻击敌方阵营
+        else if (this->TeamID == ETeam::Player)
+        {
+            bIsValidTarget = (Entity->TeamID == ETeam::Enemy);
+        }
 
-            if (Distance <= AttackRange)
+        if (bIsValidTarget && Entity->CurrentHealth > 0 && Entity->bIsTargetable)
+        {
+            // 计算距离（使用表面距离）
+            float DistToSurface = FLT_MAX;
+            UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Entity->GetRootComponent());
+            if (!Prim) Prim = Entity->FindComponentByClass<UStaticMeshComponent>();
+
+            if (Prim)
             {
-                return Building;
+                FVector ClosestPt;
+                Prim->GetClosestPointOnCollision(GetActorLocation(), ClosestPt);
+                ClosestPt.Z = GetActorLocation().Z;
+                DistToSurface = FVector::Dist(GetActorLocation(), ClosestPt);
+            }
+            else
+            {
+                DistToSurface = FVector::Dist(GetActorLocation(), Entity->GetActorLocation());
             }
 
-            if (Distance < ClosestDistance)
+            // 优先选择最近的
+            if (DistToSurface < ClosestDistance)
             {
-                ClosestDistance = Distance;
-                ClosestBuilding = Building;
+                ClosestDistance = DistToSurface;
+                ClosestActor = Entity;
             }
         }
     }
 
-    return ClosestBuilding;
+    if (ClosestActor)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[Unit] %s found target %s at distance %.1f"),
+            *GetName(), *ClosestActor->GetName(), ClosestDistance);
+    }
+
+    return ClosestActor;
 }
 
 void ABaseUnit::RequestPathToTarget()
 {
-    if (!CurrentTarget || !GridManagerRef)
+    if (!GridManagerRef)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Unit] %s cannot request path!"), *GetName());
-        return;
+        GridManagerRef = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
     }
+
+    if (!CurrentTarget || !GridManagerRef) return;
 
     FVector StartPos = GetActorLocation();
     FVector EndPos = CurrentTarget->GetActorLocation();
 
+    // 查找路径
     PathPoints = GridManagerRef->FindPath(StartPos, EndPos);
     CurrentPathIndex = 0;
 
-    UE_LOG(LogTemp, Log, TEXT("[Unit] %s path: %d waypoints"), *GetName(), PathPoints.Num());
-
-    if (PathPoints.Num() > 1)
+    // 路径抖动 (Jitter) - 防止重叠走线
+    if (PathPoints.Num() > 0)
     {
+        float JitterAmount = 40.0f;
         for (int32 i = 0; i < PathPoints.Num() - 1; i++)
         {
-            DrawDebugLine(GetWorld(), PathPoints[i], PathPoints[i + 1],
-                FColor::Cyan, false, 3.0f, 0, 3.0f);
-        }
-    }
-
-    if (PathPoints.Num() > 1 && FVector::DistSquared(PathPoints[0], GetActorLocation()) < 100.0f)
-    {
-        CurrentPathIndex = 1;
-    }
-}
-
-void ABaseUnit::MoveAlongPath(float DeltaTime)
-{
-    if (PathPoints.Num() == 0 || CurrentPathIndex >= PathPoints.Num())
-    {
-        CurrentState = EUnitState::Idle;
-        return;
-    }
-
-    if (!CurrentTarget || CurrentTarget->IsPendingKill())
-    {
-        CurrentState = EUnitState::Idle;
-        CurrentTarget = nullptr;
-        PathPoints.Empty();
-        return;
-    }
-
-    FVector TargetPoint = PathPoints[CurrentPathIndex];
-    FVector CurrentLocation = GetActorLocation();
-    FVector Direction = (TargetPoint - CurrentLocation).GetSafeNormal();
-
-    FVector NewLocation = CurrentLocation + Direction * MoveSpeed * DeltaTime;
-    SetActorLocation(NewLocation);
-
-    if (!Direction.IsNearlyZero())
-    {
-        FRotator NewRotation = Direction.Rotation();
-        NewRotation.Pitch = 0;
-        NewRotation.Roll = 0;
-        SetActorRotation(NewRotation);
-    }
-
-    float DistanceToPoint = FVector::DistSquared(NewLocation, TargetPoint);
-    if (DistanceToPoint < 100.0f)
-    {
-        CurrentPathIndex++;
-
-        if (CurrentPathIndex >= PathPoints.Num())
-        {
-            if (CurrentTarget)
-            {
-                float Distance = FVector::Dist(NewLocation, CurrentTarget->GetActorLocation());
-                if (Distance <= AttackRange)
-                {
-                    CurrentState = EUnitState::Attacking;
-                    UE_LOG(LogTemp, Warning, TEXT("[Unit] %s path complete, starting attack!"), *GetName());
-                }
-                else
-                {
-                    RequestPathToTarget();
-                    if (PathPoints.Num() == 0)
-                    {
-                        CurrentState = EUnitState::Idle;
-                    }
-                }
-            }
-            else
-            {
-                CurrentState = EUnitState::Idle;
-            }
+            PathPoints[i].X += FMath::RandRange(-JitterAmount, JitterAmount);
+            PathPoints[i].Y += FMath::RandRange(-JitterAmount, JitterAmount);
         }
     }
 }
 
 void ABaseUnit::PerformAttack()
 {
+    // 更强的目标有效性检查
+    if (!IsValid(CurrentTarget) || CurrentTarget->IsPendingKill())
+    {
+        CurrentTarget = nullptr;
+        CurrentState = EUnitState::Idle;
+        return;
+    }
+
+    // 转换为具体类型进行更严格的检查
+    ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
+    if (!TargetEntity || TargetEntity->CurrentHealth <= 0.0f || !TargetEntity->bIsTargetable)
+    {
+        CurrentTarget = nullptr;
+        CurrentState = EUnitState::Idle;
+        return;
+    }
+
     if (!CurrentTarget)
     {
         CurrentState = EUnitState::Idle;
         return;
     }
 
-    ABaseGameEntity* TargetEntity = Cast<ABaseGameEntity>(CurrentTarget);
-    if (!TargetEntity || TargetEntity->CurrentHealth <= 0)
+    // 攻击时的距离检查也用表面距离
+    float DistToSurface = FLT_MAX;
+    UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+    if (!TargetPrim) TargetPrim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
+
+    if (TargetPrim)
     {
-        UE_LOG(LogTemp, Log, TEXT("[Unit] %s target destroyed during attack"), *GetName());
-        CurrentTarget = nullptr;
-        CurrentState = EUnitState::Idle;
-        return;
+        FVector ClosestPt;
+        TargetPrim->GetClosestPointOnCollision(GetActorLocation(), ClosestPt);
+        ClosestPt.Z = GetActorLocation().Z;
+        DistToSurface = FVector::Dist(GetActorLocation(), ClosestPt);
+    }
+    else
+    {
+        DistToSurface = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
     }
 
-    float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
-    if (Distance > AttackRange)
+    // 宽松判定
+    if (DistToSurface > (AttackRange + 80.0f))
     {
         RequestPathToTarget();
-        if (PathPoints.Num() > 0)
-        {
-            CurrentState = EUnitState::Moving;
-        }
+        if (PathPoints.Num() > 0) CurrentState = EUnitState::Moving;
         return;
     }
 
+    // 攻击执行
     float CurrentTime = GetWorld()->GetTimeSeconds();
     if (CurrentTime - LastAttackTime >= AttackInterval)
     {
@@ -325,16 +471,19 @@ void ABaseUnit::PerformAttack()
         CurrentTarget->TakeDamage(Damage, DamageEvent, nullptr, this);
         LastAttackTime = CurrentTime;
 
-        FVector Direction = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-        if (!Direction.IsNearlyZero())
+        // 面向目标
+        FVector Dir = (CurrentTarget->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+        if (!Dir.IsNearlyZero())
         {
-            FRotator NewRotation = Direction.Rotation();
-            NewRotation.Pitch = 0;
-            NewRotation.Roll = 0;
-            SetActorRotation(NewRotation);
+            FRotator TargetRot = Dir.Rotation();
+            TargetRot.Pitch = 0;
+            SetActorRotation(TargetRot);
         }
 
-        UE_LOG(LogTemp, Log, TEXT("[Unit] %s attacked %s for %f damage!"),
-            *GetName(), *CurrentTarget->GetName(), Damage);
+        // 触发冲撞动画
+        bIsLunging = true;
+        LungeTimer = 0.0f;
+
+        UE_LOG(LogTemp, Log, TEXT("[Unit] %s attacked %s!"), *GetName(), *CurrentTarget->GetName());
     }
 }

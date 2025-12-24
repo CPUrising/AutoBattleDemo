@@ -3,16 +3,14 @@
 #include "GridManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
-#include "BaseUnit.h"
+#include "Components/StaticMeshComponent.h"
+#include "Particles/ParticleSystem.h"
 
 ASoldier_Bomber::ASoldier_Bomber()
 {
-    // 设置兵种类型
     UnitType = EUnitType::Bomber;
-
-    // 炸弹人属性
     MaxHealth = 50.0f;
-    AttackRange = 100.0f;
+    AttackRange = 100.0f; // 炸弹人手短，要贴近
     Damage = 0.0f;
     MoveSpeed = 350.0f;
     AttackInterval = 0.0f;
@@ -24,75 +22,70 @@ ASoldier_Bomber::ASoldier_Bomber()
 void ASoldier_Bomber::BeginPlay()
 {
     Super::BeginPlay();
-
-    UE_LOG(LogTemp, Warning, TEXT("[Bomber] %s spawned | ExplosionDamage: %f | Radius: %f"),
-        *GetName(), ExplosionDamage, ExplosionRadius);
 }
 
-AActor* ASoldier_Bomber::FindClosestEnemyBuilding()
+// 重写：优先寻找墙，使用【表面距离】
+AActor* ASoldier_Bomber::FindClosestTarget()
 {
     TArray<AActor*> AllBuildings;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
 
     AActor* ClosestWall = nullptr;
-    float ClosestWallDistance = FLT_MAX;
+    float ClosestWallDist = FLT_MAX;
 
     AActor* ClosestOther = nullptr;
-    float ClosestOtherDistance = FLT_MAX;
+    float ClosestOtherDist = FLT_MAX;
 
     for (AActor* Actor : AllBuildings)
     {
         ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
 
-        if (Building &&
-            Building->TeamID != this->TeamID &&
-            Building->CurrentHealth > 0)
+        if (Building && Building->TeamID != this->TeamID && Building->CurrentHealth > 0 && Building->bIsTargetable)
         {
-            float Distance = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
+            // 计算表面距离
+            float DistToSurface = FLT_MAX;
+            UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(Building->GetRootComponent());
+            if (!Prim) Prim = Building->FindComponentByClass<UStaticMeshComponent>();
 
-            // 优先选择墙
+            if (Prim)
+            {
+                FVector ClosestPt;
+                Prim->GetClosestPointOnCollision(GetActorLocation(), ClosestPt);
+                ClosestPt.Z = GetActorLocation().Z;
+                DistToSurface = FVector::Dist(GetActorLocation(), ClosestPt);
+            }
+            else
+            {
+                DistToSurface = FVector::Dist(GetActorLocation(), Building->GetActorLocation());
+            }
+            
+            // 优先找墙
             if (Building->BuildingType == EBuildingType::Wall)
             {
-                if (Distance <= AttackRange)
-                {
-                    UE_LOG(LogTemp, Warning, TEXT("[Bomber] %s found wall in range: %s"),
-                        *GetName(), *Building->GetName());
-                    return Building;
-                }
+                if (DistToSurface <= AttackRange) return Building; // 脸上有墙，直接炸
 
-                if (Distance < ClosestWallDistance)
+                if (DistToSurface < ClosestWallDist)
                 {
-                    ClosestWallDistance = Distance;
+                    ClosestWallDist = DistToSurface;
                     ClosestWall = Building;
                 }
             }
             else
             {
-                if (Distance < ClosestOtherDistance)
+                if (DistToSurface < ClosestOtherDist)
                 {
-                    ClosestOtherDistance = Distance;
+                    ClosestOtherDist = DistToSurface;
                     ClosestOther = Building;
                 }
             }
         }
     }
 
-    if (ClosestWall)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[Bomber] %s targeting wall: %s"),
-            *GetName(), *ClosestWall->GetName());
-        return ClosestWall;
-    }
-
-    if (ClosestOther)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[Bomber] %s no walls found, targeting: %s"),
-            *GetName(), *ClosestOther->GetName());
-    }
-
+    if (ClosestWall) return ClosestWall;
     return ClosestOther;
 }
 
+// 执行自爆前的判定
 void ASoldier_Bomber::PerformAttack()
 {
     if (!CurrentTarget)
@@ -109,19 +102,35 @@ void ASoldier_Bomber::PerformAttack()
         return;
     }
 
-    float Distance = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+    // 再次计算表面距离 (防止还没走到就炸了)
+    float DistToSurface = FLT_MAX;
+    UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(CurrentTarget->GetRootComponent());
+    if (!Prim) Prim = CurrentTarget->FindComponentByClass<UStaticMeshComponent>();
 
-    if (Distance > AttackRange)
+    if (Prim)
+    {
+        FVector ClosestPt;
+        Prim->GetClosestPointOnCollision(GetActorLocation(), ClosestPt);
+        ClosestPt.Z = GetActorLocation().Z;
+        DistToSurface = FVector::Dist(GetActorLocation(), ClosestPt);
+    }
+    else
+    {
+        DistToSurface = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+    }
+    
+    // 如果距离还不够近 (加一点点缓冲)，继续走
+    if (DistToSurface > (AttackRange + 20.0f))
     {
         RequestPathToTarget();
-        if (PathPoints.Num() > 0)
-        {
-            CurrentState = EUnitState::Moving;
-        }
+        if (PathPoints.Num() > 0) CurrentState = EUnitState::Moving;
         return;
     }
 
-    UE_LOG(LogTemp, Error, TEXT("[Bomber] %s EXPLODING!!!"), *GetName());
+    // 距离够了，BOOM！
+    UE_LOG(LogTemp, Warning, TEXT("[Bomber] %s Reached target %s (Dist: %f), EXPLODING!"),
+        *GetName(), *CurrentTarget->GetName(), DistToSurface);
+
     SuicideAttack();
 }
 
@@ -129,41 +138,41 @@ void ASoldier_Bomber::SuicideAttack()
 {
     FVector ExplosionCenter = GetActorLocation();
 
-    // 绘制爆炸范围
-    DrawDebugSphere(GetWorld(), ExplosionCenter, ExplosionRadius,
-        16, FColor::Orange, false, 3.0f, 0, 5.0f);
+    // 1. 特效
+    if (ExplosionVFX)
+    {
+        UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ExplosionVFX, ExplosionCenter, FRotator::ZeroRotator, FVector(3.0f));
+    }
 
-    // 对范围内所有建筑造成伤害
+    // 2. 范围伤害
     TArray<AActor*> AllBuildings;
     UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), AllBuildings);
 
     int32 HitCount = 0;
-    TArray<ABaseBuilding*> DestroyedWalls; // 记录被炸毁的墙
+    TArray<ABaseBuilding*> DestroyedWalls;
 
     for (AActor* Actor : AllBuildings)
     {
         ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
-
-        if (Building &&
-            Building->TeamID != this->TeamID &&
-            Building->CurrentHealth > 0)
+        // 炸建筑，且是敌人
+        if (Building && Building->TeamID != this->TeamID && Building->CurrentHealth > 0)
         {
             float Distance = FVector::Dist(ExplosionCenter, Building->GetActorLocation());
 
+            // 只要在爆炸半径内 (注意：这里用中心距离判定爆炸范围是合理的，因为爆炸是球形的)
             if (Distance <= ExplosionRadius)
             {
-                // 记录爆炸前血量
                 float HealthBefore = Building->CurrentHealth;
 
-                // 应用伤害
                 FDamageEvent DamageEvent;
-                Building->TakeDamage(ExplosionDamage, DamageEvent, nullptr, this);
+                // 对墙造成 5 倍 伤害 (炸弹人特性)
+                float FinalDamage = ExplosionDamage;
+                if (Building->BuildingType == EBuildingType::Wall) FinalDamage *= 5.0f;
+
+                Building->TakeDamage(FinalDamage, DamageEvent, nullptr, this);
                 HitCount++;
 
-                UE_LOG(LogTemp, Warning, TEXT("[Bomber] %s hit %s for %f damage!"),
-                    *GetName(), *Building->GetName(), ExplosionDamage);
-
-                // 检查是否炸毁了墙
+                // 记录炸毁的墙
                 if (Building->BuildingType == EBuildingType::Wall &&
                     HealthBefore > 0 && Building->CurrentHealth <= 0)
                 {
@@ -173,30 +182,18 @@ void ASoldier_Bomber::SuicideAttack()
         }
     }
 
-    UE_LOG(LogTemp, Error, TEXT("[Bomber] %s explosion hit %d buildings!"), *GetName(), HitCount);
-
-    // 【关键】通知 GridManager 更新网格
+    // 3. 通知 GridManager 解锁格子
     if (DestroyedWalls.Num() > 0 && GridManagerRef)
     {
         for (ABaseBuilding* Wall : DestroyedWalls)
         {
-            // 检查墙是否有有效的网格坐标
             if (Wall->GridX >= 0 && Wall->GridY >= 0)
             {
-                // 调用成员A的接口，将这个格子设为可通行
                 GridManagerRef->SetTileBlocked(Wall->GridX, Wall->GridY, false);
-
-                UE_LOG(LogTemp, Error, TEXT("[Bomber] Wall destroyed at Grid (%d, %d) - Grid updated!"),
-                    Wall->GridX, Wall->GridY);
-            }
-            else
-            {
-                UE_LOG(LogTemp, Warning, TEXT("[Bomber] Wall %s has no valid grid position! (GridX=%d, GridY=%d)"),
-                    *Wall->GetName(), Wall->GridX, Wall->GridY);
             }
         }
     }
 
-    // 自爆后销毁
+    // 4. 销毁自己
     Destroy();
 }

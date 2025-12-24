@@ -75,61 +75,46 @@ void ABaseUnit::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
 
     // 绘制调试信息
-    FColor StateColor = FColor::White;
-    switch (CurrentState)
-    {
-    case EUnitState::Idle: StateColor = FColor::Black; break;
-    case EUnitState::Moving: StateColor = FColor::Green; break;
-    case EUnitState::Attacking: StateColor = FColor::Red; break;
-    }
+    //FColor StateColor = FColor::White;
+    //switch (CurrentState)
+    //{
+    //case EUnitState::Idle: StateColor = FColor::Black; break;
+    //case EUnitState::Moving: StateColor = FColor::Green; break;
+    //case EUnitState::Attacking: StateColor = FColor::Red; break;
+    //}
 
-    // 绘制状态指示器
-    FVector DrawLocation = GetActorLocation() + FVector(0, 0, 100.0f);
-    FString StateString = UEnum::GetValueAsString(CurrentState);
-    FString TeamString = (TeamID == ETeam::Player) ? TEXT("Player") : TEXT("Enemy");
-    FString DebugString = FString::Printf(TEXT("%s - %s"), *TeamString, *StateString);
+    //// 绘制状态指示器
+    //FVector DrawLocation = GetActorLocation() + FVector(0, 0, 100.0f);
+    //FString StateString = UEnum::GetValueAsString(CurrentState);
+    //FString TeamString = (TeamID == ETeam::Player) ? TEXT("Player") : TEXT("Enemy");
+    //FString DebugString = FString::Printf(TEXT("%s - %s"), *TeamString, *StateString);
 
-    // 使用DrawDebugString
-    DrawDebugString(GetWorld(), DrawLocation, DebugString, nullptr, StateColor, 0.0f, true);
+    //// 使用DrawDebugString
+    //DrawDebugString(GetWorld(), DrawLocation, DebugString, nullptr, StateColor, 0.0f, true);
 
-    // 绘制到目标的线
-    if (CurrentTarget && bIsActive)
-    {
-        FColor LineColor = (CurrentState == EUnitState::Attacking) ? FColor::Red : FColor::Green;
-        DrawDebugLine(GetWorld(), GetActorLocation(), CurrentTarget->GetActorLocation(),
-            LineColor, false, -1.0f, 0, 2.0f);
-    }
+    //// 绘制到目标的线
+    //if (CurrentTarget && bIsActive)
+    //{
+    //    FColor LineColor = (CurrentState == EUnitState::Attacking) ? FColor::Red : FColor::Green;
+    //    DrawDebugLine(GetWorld(), GetActorLocation(), CurrentTarget->GetActorLocation(),
+    //        LineColor, false, -1.0f, 0, 2.0f);
+    //}
 
-    // 绘制路径点
-    if (PathPoints.Num() > 0 && CurrentState == EUnitState::Moving)
-    {
-        for (int32 i = 0; i < PathPoints.Num(); i++)
-        {
-            DrawDebugSphere(GetWorld(), PathPoints[i], 20.0f, 8, FColor::Yellow, false, -1.0f, 0, 1.0f);
-            if (i > 0)
-            {
-                DrawDebugLine(GetWorld(), PathPoints[i - 1], PathPoints[i],
-                    FColor::Yellow, false, -1.0f, 0, 2.0f);
-            }
-        }
-    }
+    //// 绘制路径点
+    //if (PathPoints.Num() > 0 && CurrentState == EUnitState::Moving)
+    //{
+    //    for (int32 i = 0; i < PathPoints.Num(); i++)
+    //    {
+    //        DrawDebugSphere(GetWorld(), PathPoints[i], 20.0f, 8, FColor::Yellow, false, -1.0f, 0, 1.0f);
+    //        if (i > 0)
+    //        {
+    //            DrawDebugLine(GetWorld(), PathPoints[i - 1], PathPoints[i],
+    //                FColor::Yellow, false, -1.0f, 0, 2.0f);
+    //        }
+    //    }
+    //}
 
     if (!bIsActive) return;
-
-    // ⬇️⬇️⬇️ [调试] 显示当前状态 ⬇️⬇️⬇️
-    /*FString StateName;
-    if (UnitType == EUnitType::Barbarian) StateName = "Barbarian";
-    else if (UnitType == EUnitType::Bomber) StateName = "Bomber";
-    else if (UnitType == EUnitType::Giant) StateName = "Giant";
-    else if (UnitType == EUnitType::Archer) StateName = "Archer";
-    
-    if (CurrentState == EUnitState::Idle) StateName += " IDLE";
-    else if (CurrentState == EUnitState::Moving) StateName += " MOVING";
-    else if (CurrentState == EUnitState::Attacking) StateName += " ATTACKING";
-
-    
-    GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, StateName);*/
-    // ⬆️⬆️⬆️ [调试] ⬆️⬆️⬆️
 
     // 1. 状态维护 (State Check)
     switch (CurrentState)

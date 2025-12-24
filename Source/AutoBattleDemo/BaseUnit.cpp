@@ -274,7 +274,7 @@ void ABaseUnit::Tick(float DeltaTime)
         FinalVelocity = FinalVelocity.GetClampedToMaxSize(MoveSpeed * 2.0f);
         FinalVelocity.Z = 0.0f; // 绝对防钻地
 
-        FHitResult MoveHit;
+        /*FHitResult MoveHit;
         AddActorWorldOffset(FinalVelocity * DeltaTime, true, &MoveHit);
 
         if (MoveHit.IsValidBlockingHit())
@@ -283,7 +283,10 @@ void ABaseUnit::Tick(float DeltaTime)
             FVector Normal = MoveHit.Normal;
             FVector SlideDir = FVector::VectorPlaneProject(FinalVelocity, Normal);
             AddActorWorldOffset(SlideDir * DeltaTime, true);
-        }
+        }*/
+
+        AddActorWorldOffset(FinalVelocity* DeltaTime, false);
+
 
         // 面向移动方向
         if (FinalVelocity.SizeSquared() > 100.0f)

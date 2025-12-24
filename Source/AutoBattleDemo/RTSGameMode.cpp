@@ -6,7 +6,9 @@
 #include "RTSGameInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
+#include "Building_Barracks.h"
 #include "Components/CapsuleComponent.h"
+#include "Building_Barracks.h"
 #include "LevelDataAsset.h" 
 
 ARTSGameMode::ARTSGameMode()
@@ -19,41 +21,92 @@ void ARTSGameMode::BeginPlay()
 {
     Super::BeginPlay();
 
-    // [调试] 打印当前地图名字
-    FString CurrentMapName = GetWorld()->GetMapName();
-    FString CleanMapName = CurrentMapName;
-    CleanMapName.RemoveFromStart(GetWorld()->StreamingLevelsPrefix); // 去掉 UEDPIE_0_ 前缀
-
-    // 1. 先打个日志证明 GameMode 活了
-    UE_LOG(LogTemp, Error, TEXT(">>> RTSGameMode BeginPlay Running! Map: %s"), *GetWorld()->GetMapName());
-
+    // 1. 找到 GridManager
     GridManager = Cast<AGridManager>(UGameplayStatics::GetActorOfClass(GetWorld(), AGridManager::StaticClass()));
 
-    // 如果配置了关卡数据且 GridManager 存在，加载敌方配置
-    if (GridManager && CurrentLevelData)
+    // 2. 在这里初始化网格
+    // 确保在做任何加载之前，网格已经就绪
+    if (GridManager)
     {
-        GridManager->LoadLevelFromDataAsset(CurrentLevelData);
+        // 收回网格加载
+        GridManager->GenerateGrid(20, 20, 100.0f);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("CRITICAL ERROR: GridManager NOT found in level!"));
+        return;
     }
 
-    // 简单判断：如果是战斗关卡，直接进入战斗状态
-    FString MapName = GetWorld()->GetMapName();
-    if (MapName.Contains("BattleField", ESearchCase::IgnoreCase)) // 战斗关卡名字包含 BattleField
+    // 注册所有手动放置的建筑 (比如敌人的墙)
+    // 因为 GenerateGrid 把网格清空了，我们需要让场景里已有的建筑重新占坑
+    TArray<AActor*> ExistingBuildings;
+    UGameplayStatics::GetAllActorsOfClass(GetWorld(), ABaseBuilding::StaticClass(), ExistingBuildings);
+
+    for (AActor* Actor : ExistingBuildings)
     {
-        // 调试
-        UE_LOG(LogTemp, Warning, TEXT(">>> Detected Battle Map! Spawning Units...")); // 调试日志
+        ABaseBuilding* Building = Cast<ABaseBuilding>(Actor);
+        if (Building)
+        {
+            // 如果建筑还没计算过网格坐标 (手动拖进去的通常是 -1)
+            // 或者是为了保险起见，重新计算一次
+            int32 X, Y;
+            if (GridManager->WorldToGrid(Building->GetActorLocation(), X, Y))
+            {
+                Building->GridX = X;
+                Building->GridY = Y;
+
+                // 核心：锁定格子！
+                GridManager->SetTileBlocked(X, Y, true);
+            }
+        }
+    }
+
+    // 3. 判断当前地图
+    FString MapName = GetWorld()->GetMapName();
+
+    // --- 战斗关卡 ---
+    if (MapName.Contains("BattleField", ESearchCase::IgnoreCase))
+    {
+        UE_LOG(LogTemp, Warning, TEXT(">>> Detected Battle Map! Spawning Units..."));
+
+        // 只有在战斗关卡，才加载关卡数据 (敌人配置)
+        // 如果放在外面的话，可能会导致你的基地里也刷出敌人的塔！
+        if (GridManager && CurrentLevelData)
+        {
+            // 注意：这内部可能会再次 GenerateGrid，但这没关系，反而更安全
+            GridManager->LoadLevelFromDataAsset(CurrentLevelData);
+        }
 
         CurrentState = EGameState::Battle;
         LoadAndSpawnUnits(); // 把带来的兵放出来
         StartBattlePhase();  // 激活 AI
     }
+    // --- 基地关卡 ---
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT(">>> Detected Base Map. Loading Buildings...")); // 调试日志
+        UE_LOG(LogTemp, Warning, TEXT(">>> Detected Base Map. Loading Buildings..."));
 
-        CurrentState = EGameState::Preparation; // 基地里是备战
+        CurrentState = EGameState::Preparation;
+
+        URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+        if (GI)
+        {
+            // 重置人口上限
+            // 因为接下来 LoadAndSpawnBase 会重新生成 HQ 和兵营，
+            // 它们会再次执行 BeginPlay 把人口加回来。
+            // 如果不归零，就会无限累加。
+            GI->MaxPopulation = 0;
+
+            // 顺便校准当前人口
+            // 以保存的兵力数组数量为准，防止计数器跑偏
+            GI->CurrentPopulation = GI->PlayerArmy.Num();
+        }
 
         // 回到基地，重新把房子盖起来
         LoadAndSpawnBase();
+
+        // 回到基地，带回兵
+        LoadAndSpawnUnits();
     }
 }
 
@@ -61,6 +114,13 @@ void ARTSGameMode::BeginPlay()
 bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 GridY)
 {
     if (CurrentState != EGameState::Preparation) return false;
+
+    // 兵营等级检查
+    // 如果不满足要求，直接拒绝，不扣钱，不生成
+    if (!CheckUnitTechRequirement(Type))
+    {
+        return false;
+    }
 
     URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
     if (!GI) return false; // 安全检查
@@ -96,10 +156,10 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
     TSubclassOf<ABaseUnit> SpawnClass = nullptr;
     switch (Type)
     {
-    case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
-    case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
-    case EUnitType::Giant:      SpawnClass = GiantClass;     break;
-    case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
+        case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
+        case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
+        case EUnitType::Giant:      SpawnClass = GiantClass;     break;
+        case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
     }
 
     if (!SpawnClass || !GridManager) return false;
@@ -141,7 +201,7 @@ bool ARTSGameMode::TryBuyUnit(EUnitType Type, int32 Cost, int32 GridX, int32 Gri
         GI->CurrentPopulation += 1; // 人口
 
         NewUnit->TeamID = ETeam::Player;
-        GridManager->SetTileBlocked(GridX, GridY, true);
+        // GridManager->SetTileBlocked(GridX, GridY, true);
         return true;
     }
     return false;
@@ -180,6 +240,7 @@ bool ARTSGameMode::TryBuildBuilding(EBuildingType Type, int32 Cost, int32 GridX,
         case EBuildingType::ElixirPump:   SpawnClass = ElixirPumpClass;   break;
         case EBuildingType::Wall:         SpawnClass = WallClass;         break;
         case EBuildingType::Headquarters: SpawnClass = HQClass;           break;
+        case EBuildingType::Barracks:     SpawnClass = BarracksClass;     break;
     default: return false;
     }
 
@@ -247,6 +308,16 @@ void ARTSGameMode::SaveBaseLayout()
             Data.GridY = Building->GridY;
             Data.Level = Building->BuildingLevel;
 
+            // 如果是兵营，保存里面的兵
+            if (Building->BuildingType == EBuildingType::Barracks)
+            {
+                // Cast 一下才能调子类函数
+                if (ABuilding_Barracks* Barracks = Cast<ABuilding_Barracks>(Building))
+                {
+                    Data.StoredUnitTypes = Barracks->GetStoredUnitTypes();
+                }
+            }
+
             GI->SavedBuildings.Add(Data);
         }
     }
@@ -261,51 +332,81 @@ void ARTSGameMode::LoadAndSpawnBase()
 {
     URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
     // 如果没有存过档(第一次玩)，或者没有 GridManager，就啥也不做
-    if (!GI || !GridManager || !GI->bHasSavedBase) return;
+    if (!GI || !GridManager) return;
 
-    // 遍历存档
-    for (const FBuildingSaveData& Data : GI->SavedBuildings)
+    // 检查是否有存档，如果没有，或者是初次游玩，也要保证有 HQ
+    bool bHasHQ = false;
+
+    if (GI->bHasSavedBase)
     {
-        // 1. 找蓝图
-        TSubclassOf<ABaseBuilding> SpawnClass = nullptr;
-        switch (Data.BuildingType)
+        for (const FBuildingSaveData& Data : GI->SavedBuildings)
         {
-            case EBuildingType::Defense:      SpawnClass = DefenseTowerClass; break;
-            case EBuildingType::GoldMine:     SpawnClass = GoldMineClass;     break;
-            case EBuildingType::ElixirPump:   SpawnClass = ElixirPumpClass;   break;
-            case EBuildingType::Wall:         SpawnClass = WallClass;         break;
+            if (Data.BuildingType == EBuildingType::Headquarters) bHasHQ = true;
+
+            TSubclassOf<ABaseBuilding> SpawnClass = nullptr;
+            switch (Data.BuildingType)
+            {
+                case EBuildingType::Defense:      SpawnClass = DefenseTowerClass; break;
+                case EBuildingType::GoldMine:     SpawnClass = GoldMineClass;     break;
+                case EBuildingType::ElixirPump:   SpawnClass = ElixirPumpClass;   break;
+                case EBuildingType::Wall:         SpawnClass = WallClass;         break;
+                case EBuildingType::Barracks:     SpawnClass = BarracksClass;     break;
+                case EBuildingType::Headquarters: SpawnClass = HQClass;           break;
+            }
+
+
+            if (!SpawnClass) continue;
+
+            // 2. 算高度 (用之前的通用逻辑)
+            float SpawnZOffset = 0.0f;
+            ABaseBuilding* DefaultBuilding = SpawnClass->GetDefaultObject<ABaseBuilding>();
+            if (DefaultBuilding)
+            {
+                FVector Origin, BoxExtent;
+                DefaultBuilding->GetActorBounds(true, Origin, BoxExtent);
+                SpawnZOffset = BoxExtent.Z;
+            }
+
+            FVector SpawnLoc = GridManager->GridToWorld(Data.GridX, Data.GridY);
+            SpawnLoc.Z += SpawnZOffset;
+
+            // 3. 生成
+            FActorSpawnParameters Params;
+            Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+            ABaseBuilding* NewBuilding = GetWorld()->SpawnActor<ABaseBuilding>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, Params);
+            if (NewBuilding)
+            {
+                NewBuilding->TeamID = ETeam::Player;
+                NewBuilding->GridX = Data.GridX;
+                NewBuilding->GridY = Data.GridY;
+                NewBuilding->BuildingLevel = Data.Level; // 恢复等级
+
+                // 恢复阻挡
+                GridManager->SetTileBlocked(Data.GridX, Data.GridY, true);
+
+                // 如果是兵营，恢复库存
+                if (Data.BuildingType == EBuildingType::Barracks)
+                {
+                    if (ABuilding_Barracks* Barracks = Cast<ABuilding_Barracks>(NewBuilding))
+                    {
+                        Barracks->RestoreStoredUnits(Data.StoredUnitTypes);
+                    }
+                }
+            }
         }
+    }
 
+    // 保底逻辑：如果存档里没 HQ (或者第一次玩)，强制在 (0,0) 生一个 ---
+    if (!bHasHQ)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("No HQ found in save data. Spawning default HQ at (0,0)."));
 
-        if (!SpawnClass) continue;
-
-        // 2. 算高度 (用之前的通用逻辑)
-        float SpawnZOffset = 0.0f;
-        ABaseBuilding* DefaultBuilding = SpawnClass->GetDefaultObject<ABaseBuilding>();
-        if (DefaultBuilding)
+        // 确保 (0,0) 没被占 (虽然 HQ 权力最大，但还是检查一下好)
+        // 实际上 HQ 应该最先生成。
+        if (HQClass)
         {
-            FVector Origin, BoxExtent;
-            DefaultBuilding->GetActorBounds(true, Origin, BoxExtent);
-            SpawnZOffset = BoxExtent.Z;
-        }
-
-        FVector SpawnLoc = GridManager->GridToWorld(Data.GridX, Data.GridY);
-        SpawnLoc.Z += SpawnZOffset;
-
-        // 3. 生成
-        FActorSpawnParameters Params;
-        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-        ABaseBuilding* NewBuilding = GetWorld()->SpawnActor<ABaseBuilding>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, Params);
-        if (NewBuilding)
-        {
-            NewBuilding->TeamID = ETeam::Player;
-            NewBuilding->GridX = Data.GridX;
-            NewBuilding->GridY = Data.GridY;
-            NewBuilding->BuildingLevel = Data.Level; // 恢复等级
-
-            // 恢复阻挡
-            GridManager->SetTileBlocked(Data.GridX, Data.GridY, true);
+            TryBuildBuilding(EBuildingType::Headquarters, 0, 0, 0); // Cost设为0免费造
         }
     }
 
@@ -352,91 +453,6 @@ void ARTSGameMode::SaveAndStartBattle(FName LevelName)
     UGameplayStatics::OpenLevel(this, LevelName);
 }
 
-void ARTSGameMode::LoadAndSpawnUnits()
-{
-    // [调试 1] 检查函数是否被调用
-    UE_LOG(LogTemp, Error, TEXT(">>> LoadAndSpawnUnits START! <<<"));
-
-    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
-
-    // [调试 2] 检查关键指针
-    if (!GI) UE_LOG(LogTemp, Error, TEXT(">>> GI is NULL!"));
-    if (!GridManager) UE_LOG(LogTemp, Error, TEXT(">>> GridManager is NULL!"));
-
-
-    if (!GI || !GridManager) return;
-
-    // [调试 3] 检查存档数量
-    UE_LOG(LogTemp, Warning, TEXT(">>> Army Count in SaveData: %d"), GI->PlayerArmy.Num());
-
-    for (const FUnitSaveData& Data : GI->PlayerArmy)
-    {
-        TSubclassOf<ABaseUnit> SpawnClass = nullptr;
-        switch (Data.UnitType)
-        {
-        case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
-        case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
-        case EUnitType::Giant:      SpawnClass = GiantClass;     break;
-        case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
-        }
-
-        if (!SpawnClass) continue;
-
-        // 计算位置
-        FVector SpawnLoc = GridManager->GridToWorld(Data.GridX, Data.GridY);
-
-        // 使用与 TryBuyUnit 完全一致的高度计算逻辑
-        float SpawnZOffset = 0.0f;
-        ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
-        if (DefaultUnit)
-        {
-            UCapsuleComponent* Cap = DefaultUnit->FindComponentByClass<UCapsuleComponent>();
-            if (Cap)
-                SpawnZOffset = Cap->GetScaledCapsuleHalfHeight();
-            else
-            {
-                FVector Origin, BoxExtent;
-                DefaultUnit->GetActorBounds(true, Origin, BoxExtent);
-                SpawnZOffset = BoxExtent.Z;
-            }
-        }
-
-        SpawnLoc.Z += SpawnZOffset;
-
-
-
-
-
-
-        // 调试
-        UE_LOG(LogTemp, Warning, TEXT("Spawn Unit: %d | GridZ: %f | Offset: %f | FinalZ: %f"),
-            (int32)Data.UnitType,
-            GridManager->GetActorLocation().Z,
-            SpawnZOffset,
-            SpawnLoc.Z
-        );
-
-        
-
-
-
-
-
-
-        
-
-        FActorSpawnParameters Params;
-        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-        ABaseUnit* NewUnit = GetWorld()->SpawnActor<ABaseUnit>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, Params);
-        if (NewUnit)
-        {
-            NewUnit->TeamID = ETeam::Player;
-            GridManager->SetTileBlocked(Data.GridX, Data.GridY, true);
-        }
-    }
-}
-
 void ARTSGameMode::StartBattlePhase()
 {
     CurrentState = EGameState::Battle;
@@ -452,13 +468,228 @@ void ARTSGameMode::RestartLevel()
     UGameplayStatics::OpenLevel(this, FName(*GetWorld()->GetName()), false);
 }
 
+// 结算逻辑：把活着的兵存下来，然后回城
+void ARTSGameMode::ReturnToBase()
+{
+    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+    if (!GI) return;
+
+    // 1. 清空旧数据 (把出发前的阵容删掉，防止死兵复活)
+    GI->PlayerArmy.Empty();
+
+    // 2. 遍历战场上所有的兵
+    for (TActorIterator<ABaseUnit> It(GetWorld()); It; ++It)
+    {
+        ABaseUnit* Unit = *It;
+
+        // 筛选：必须是玩家的兵 + 必须活着 + 没有被标记销毁
+        if (Unit &&
+            Unit->TeamID == ETeam::Player &&
+            Unit->CurrentHealth > 0 &&
+            !Unit->IsPendingKill())
+        {
+            FUnitSaveData Data;
+            Data.UnitType = Unit->UnitType;
+
+            // 计算它当前在战场上的哪个格子 (作为回城后的参考位置)
+            if (GridManager)
+            {
+                // 如果兵在移动中，可能不在格子上，但这没关系，WorldToGrid 会算最近的
+                GridManager->WorldToGrid(Unit->GetActorLocation(), Data.GridX, Data.GridY);
+            }
+
+            GI->PlayerArmy.Add(Data);
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("Returning to Base with %d survivors."), GI->PlayerArmy.Num());
+
+    // 3. 回家
+    UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+}
+
+// 加载逻辑：带防重叠功能的生成
+void ARTSGameMode::LoadAndSpawnUnits()
+{
+    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+    if (!GI || !GridManager) return;
+
+    FString MapName = GetWorld()->GetMapName();
+    bool bIsHomeBase = !MapName.Contains("BattleField", ESearchCase::IgnoreCase);
+
+    // 临时记录本轮生成的兵占用的格子 (防止自己人踩自己人)
+    TSet<FIntPoint> OccupiedByUnits;
+
+    for (const FUnitSaveData& Data : GI->PlayerArmy)
+    {
+        // 1. 匹配蓝图
+        TSubclassOf<ABaseUnit> SpawnClass = nullptr;
+        switch (Data.UnitType)
+        {
+            case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
+            case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
+            case EUnitType::Giant:      SpawnClass = GiantClass;     break;
+            case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
+        }
+
+        if (!SpawnClass) continue;
+
+        // 确定中心点
+        int32 CenterX, CenterY;
+        if (bIsHomeBase)
+        {
+            CenterX = 0; CenterY = 0; // 基地：围绕 HQ(0,0)
+        }
+        else
+        {
+            CenterX = Data.GridX; CenterY = Data.GridY; // 战场：原位
+        }
+
+        // --- 螺旋搜索空位 ---
+        bool bFoundSpot = false;
+        int32 FinalX = CenterX;
+        int32 FinalY = CenterY;
+
+        // 搜索半径
+        for (int32 Radius = 0; Radius <= 15; ++Radius) // 从 0 开始，先查中心
+        {
+            // 简单的矩形遍历算法
+            for (int32 x = CenterX - Radius; x <= CenterX + Radius; ++x)
+            {
+                for (int32 y = CenterY - Radius; y <= CenterY + Radius; ++y)
+                {
+                    // 1. 检查物理阻挡 (建筑/墙)
+                    if (!GridManager->IsTileWalkable(x, y)) continue;
+
+                    // 2. 检查本轮生成的兵是否占了这个坑
+                    if (OccupiedByUnits.Contains(FIntPoint(x, y))) continue;
+
+                    // 找到空位了！
+                    FinalX = x;
+                    FinalY = y;
+                    bFoundSpot = true;
+                    goto SpotFound;
+                }
+            }
+        }
+        SpotFound:;
+
+        // 如果实在没地方了，也只能重叠了(或者不生成)，这里选择跳过不生成以防卡死
+        if (!bFoundSpot)
+        {
+            UE_LOG(LogTemp, Error, TEXT("No space to spawn unit!"));
+            continue;
+        }
+
+        // 记录占用
+        OccupiedByUnits.Add(FIntPoint(FinalX, FinalY));
+
+        // 3. 计算世界坐标
+        FVector SpawnLoc = GridManager->GridToWorld(FinalX, FinalY);
+
+        // 4. 计算高度 (保持之前的完美贴地逻辑)
+        float SpawnZOffset = 0.0f;
+        ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
+        if (DefaultUnit)
+        {
+            UCapsuleComponent* Cap = DefaultUnit->FindComponentByClass<UCapsuleComponent>();
+            if (Cap)
+                SpawnZOffset = Cap->GetScaledCapsuleHalfHeight();
+            else
+            {
+                FVector Origin, BoxExtent;
+                DefaultUnit->GetActorBounds(true, Origin, BoxExtent);
+                SpawnZOffset = BoxExtent.Z;
+            }
+        }
+        SpawnLoc.Z += SpawnZOffset;
+
+        // 5. 生成
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+        ABaseUnit* NewUnit = GetWorld()->SpawnActor<ABaseUnit>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, Params);
+        if (NewUnit)
+        {
+            NewUnit->TeamID = ETeam::Player;
+           
+            // 锁定新的格子
+            // GridManager->SetTileBlocked(FinalX, FinalY, true);
+        }
+    }
+}
+
 void ARTSGameMode::OnActorKilled(AActor* Victim, AActor* Killer)
 {
     if (!Victim) return;
     UE_LOG(LogTemp, Log, TEXT("Actor Killed: %s"), *Victim->GetName());
+
+    // 士兵死亡返还人口
+    // 1. 尝试把受害者转成士兵
+    ABaseUnit* DeadUnit = Cast<ABaseUnit>(Victim);
+
+    // 2. 只有当它是士兵，且属于玩家阵营时，才返还
+    if (DeadUnit && DeadUnit->TeamID == ETeam::Player)
+    {
+        URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+        if (GI)
+        {
+            // 人口 -1，但最小不能小于 0
+            GI->CurrentPopulation = FMath::Max(0, GI->CurrentPopulation - 1);
+
+            UE_LOG(LogTemp, Warning, TEXT("Unit Died! Population returned. Current: %d/%d"),
+                GI->CurrentPopulation, GI->MaxPopulation);
+        }
+    }
+
     CheckWinCondition();
 }
 
+bool ARTSGameMode::SpawnUnitAt(EUnitType Type, int32 GridX, int32 GridY)
+{
+    if (!GridManager) return false;
+
+    // 1. 匹配蓝图
+    TSubclassOf<ABaseUnit> SpawnClass = nullptr;
+    switch (Type)
+    {
+        case EUnitType::Barbarian:  SpawnClass = BarbarianClass; break;
+        case EUnitType::Archer:     SpawnClass = ArcherClass;    break;
+        case EUnitType::Giant:      SpawnClass = GiantClass;     break;
+        case EUnitType::Bomber:     SpawnClass = BomberClass;    break;
+    }
+    if (!SpawnClass) return false;
+
+    // 2. 高度计算 (复制之前的逻辑)
+    FVector SpawnLoc = GridManager->GridToWorld(GridX, GridY);
+    float SpawnZOffset = 0.0f;
+    ABaseUnit* DefaultUnit = SpawnClass->GetDefaultObject<ABaseUnit>();
+    if (DefaultUnit)
+    {
+        UCapsuleComponent* Cap = DefaultUnit->FindComponentByClass<UCapsuleComponent>();
+        if (Cap) SpawnZOffset = Cap->GetScaledCapsuleHalfHeight();
+        else
+        {
+            FVector Origin, BoxExtent;
+            DefaultUnit->GetActorBounds(true, Origin, BoxExtent);
+            SpawnZOffset = BoxExtent.Z;
+        }
+    }
+    SpawnLoc.Z += SpawnZOffset;
+
+    // 3. 生成
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    ABaseUnit* NewUnit = GetWorld()->SpawnActor<ABaseUnit>(SpawnClass, SpawnLoc, FRotator::ZeroRotator, SpawnParams);
+    if (NewUnit)
+    {
+        NewUnit->TeamID = ETeam::Player;
+        // GridManager->SetTileBlocked(GridX, GridY, true);
+        return true;
+    }
+    return false;
+}
 
 void ARTSGameMode::CheckWinCondition()
 {
@@ -497,7 +728,7 @@ void ARTSGameMode::CheckWinCondition()
         FTimerHandle TimerHandle;
         GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
             {
-                UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+                ReturnToBase();
             }, 3.0f, false);
 
         return; // 结束检查
@@ -528,8 +759,104 @@ void ARTSGameMode::CheckWinCondition()
         FTimerHandle TimerHandle;
         GetWorld()->GetTimerManager().SetTimer(TimerHandle, [this]()
             {
-                UGameplayStatics::OpenLevel(this, FName("PlayerBase"));
+                ReturnToBase();
             }, 3.0f, false);
     }
 }
 
+bool ARTSGameMode::TryUpgradeBuilding(ABaseBuilding* BuildingToUpgrade)
+{
+    if (!BuildingToUpgrade) return false;
+    if (CurrentState != EGameState::Preparation) return false; // 只有备战期能升级
+
+    // 1. 检查是否满级
+    if (!BuildingToUpgrade->CanUpgrade())
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Max Level Reached!"));
+        return false;
+    }
+
+    // 2. 获取费用
+    int32 GoldCost = 0;
+    int32 ElixirCost = 0;
+    BuildingToUpgrade->GetUpgradeCost(GoldCost, ElixirCost);
+
+    URTSGameInstance* GI = Cast<URTSGameInstance>(GetGameInstance());
+    if (!GI) return false;
+
+    // 3. 检查资源
+    if (GI->PlayerGold < GoldCost)
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("Not Enough Gold to Upgrade!"));
+        return false;
+    }
+
+    // 4. 执行升级
+    GI->PlayerGold -= GoldCost;
+
+    BuildingToUpgrade->LevelUp(); // 调用建筑自己的升级逻辑(加血/变大)
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Green, TEXT("Upgrade Successful!"));
+    return true;
+}
+
+int32 ARTSGameMode::GetCurrentTechLevel()
+{
+    int32 MaxLevel = 0;
+
+    // 遍历所有兵营
+    for (TActorIterator<ABuilding_Barracks> It(GetWorld()); It; ++It)
+    {
+        ABuilding_Barracks* Barracks = *It;
+        // 必须是玩家的，且活着的
+        if (Barracks && Barracks->TeamID == ETeam::Player && Barracks->CurrentHealth > 0)
+        {
+            // 找到等级最高的那个
+            if (Barracks->BuildingLevel > MaxLevel)
+            {
+                MaxLevel = Barracks->BuildingLevel;
+            }
+        }
+    }
+    return MaxLevel;
+}
+
+bool ARTSGameMode::CheckUnitTechRequirement(EUnitType Type)
+{
+    int32 CurrentLevel = GetCurrentTechLevel();
+    int32 RequiredLevel = 99; // 默认很高，防止漏洞
+
+    switch (Type)
+    {
+    case EUnitType::Barbarian:  RequiredLevel = 1; break; // 只要有兵营(Lv1)就能造
+    case EUnitType::Archer:     RequiredLevel = 2; break;
+    case EUnitType::Giant:      RequiredLevel = 3; break;
+    case EUnitType::Bomber:     RequiredLevel = 4; break;
+        // 如果有其他兵种，继续加 case
+    }
+
+    if (CurrentLevel >= RequiredLevel)
+    {
+        return true;
+    }
+    else
+    {
+        // 打印提示
+        FString UnitName = "";
+        const UEnum* EnumPtr = FindObject<UEnum>(ANY_PACKAGE, TEXT("EUnitType"), true);
+        if (EnumPtr) UnitName = EnumPtr->GetNameStringByValue((int64)Type);
+
+        if (CurrentLevel == 0)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Build Failed: No Barracks found! Build a Barracks first."));
+            if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, TEXT("Need Barracks!"));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("Build Failed: Barracks Level too low for %s. Need Lv%d, Have Lv%d"), *UnitName, RequiredLevel, CurrentLevel);
+            if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, FString::Printf(TEXT("Need Barracks Lv.%d"), RequiredLevel));
+        }
+
+        return false;
+    }
+}

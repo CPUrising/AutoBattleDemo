@@ -4,6 +4,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "RTSPlayerController.h"
 #include "RTSGameMode.h"
+#include "BaseBuilding.h" 
 #include "RTSGameInstance.h"
 
 void URTSMainHUD::NativeConstruct()
@@ -21,12 +22,18 @@ void URTSMainHUD::NativeConstruct()
 	if (Btn_BuildMine)  Btn_BuildMine->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildMine);
 	if (Btn_BuildElixir) Btn_BuildElixir->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildElixir);
 	if (Btn_BuildWall)	Btn_BuildWall->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildWall);
+	if (Btn_BuildBarracks)	Btn_BuildBarracks->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickBuildBarracks);
 
 	// 绑定流程按钮
 	if (Btn_StartBattle) Btn_StartBattle->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickStartBattle);
 	
 	// 绑定移除按钮
 	if (Btn_Remove) Btn_Remove->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickRemove);
+
+	// 建筑升级按钮
+	if (Btn_Upgrade) Btn_Upgrade->OnClicked.AddDynamic(this, &URTSMainHUD::OnClickUpgrade);
+	// 默认隐藏
+	if (Btn_Upgrade) Btn_Upgrade->SetVisibility(ESlateVisibility::Hidden);
 }
 
 void URTSMainHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -48,6 +55,39 @@ void URTSMainHUD::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 				GI->MaxPopulation);
 
 			Text_PopulationInfo->SetText(FText::FromString(PopStr));
+		}
+	}
+
+	// 动态更新升级按钮
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC && Btn_Upgrade && Text_UpgradeCost)
+	{
+		// 如果有选中的建筑，且该建筑属于玩家
+		if (PC->SelectedBuilding && PC->SelectedBuilding->TeamID == ETeam::Player)
+		{
+			// 显示按钮
+			Btn_Upgrade->SetVisibility(ESlateVisibility::Visible);
+
+			// 获取升级价格
+			int32 GoldCost, ElixirCost;
+			PC->SelectedBuilding->GetUpgradeCost(GoldCost, ElixirCost);
+
+			// 检查是否满级
+			if (PC->SelectedBuilding->CanUpgrade())
+			{
+				Text_UpgradeCost->SetText(FText::FromString(FString::Printf(TEXT("Upgrade (%d G)"), GoldCost)));
+				Btn_Upgrade->SetIsEnabled(true);
+			}
+			else
+			{
+				Text_UpgradeCost->SetText(FText::FromString(TEXT("MAX LEVEL")));
+				Btn_Upgrade->SetIsEnabled(false);
+			}
+		}
+		else
+		{
+			// 没选中东西，隐藏按钮
+			Btn_Upgrade->SetVisibility(ESlateVisibility::Hidden);
 		}
 	}
 }
@@ -139,6 +179,22 @@ void URTSMainHUD::OnClickBuildWall()
 	}
 }
 
+// 实现造兵营逻辑
+void URTSMainHUD::OnClickBuildBarracks()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		PC->OnSelectBuildingToPlace(EBuildingType::Barracks);
+
+		// 归还鼠标焦点
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		PC->SetInputMode(InputMode);
+	}
+}
+
 void URTSMainHUD::OnClickStartBattle()
 {
 	ARTSGameMode* GM = Cast<ARTSGameMode>(UGameplayStatics::GetGameMode(this));
@@ -162,3 +218,13 @@ void URTSMainHUD::OnClickRemove()
 		PC->SetInputMode(InputMode);
 	}
 }
+
+void URTSMainHUD::OnClickUpgrade()
+{
+	ARTSPlayerController* PC = Cast<ARTSPlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		PC->RequestUpgradeSelectedBuilding();
+	}
+}
+

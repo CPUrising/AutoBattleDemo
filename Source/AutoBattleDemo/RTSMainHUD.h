@@ -57,6 +57,10 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_BuildWall;
 
+	// 造兵营按钮
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_BuildBarracks;
+
 
 
 	// --- 按钮：流程 ---
@@ -67,6 +71,14 @@ protected:
 	UPROPERTY(meta = (BindWidget))
 		UButton* Btn_Remove;
 
+	// 升级按钮
+	UPROPERTY(meta = (BindWidget))
+		UButton* Btn_Upgrade;
+
+	UPROPERTY(meta = (BindWidget))
+		UTextBlock* Text_UpgradeCost; // 显示 "Upgrade (500 G)"
+
+	
 
 
 	// --- 点击事件处理 ---
@@ -79,7 +91,12 @@ protected:
 	UFUNCTION() void OnClickBuildMine();
 	UFUNCTION()	void OnClickBuildElixir();
 	UFUNCTION()	void OnClickBuildWall();
+	UFUNCTION()	void OnClickBuildBarracks();
+
+	UFUNCTION()	void OnClickUpgrade();
 
 	UFUNCTION() void OnClickStartBattle();
 	UFUNCTION() void OnClickRemove();
+
+	
 };

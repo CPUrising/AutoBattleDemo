@@ -27,7 +27,7 @@ public:
         int32 CurrentPopulation = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Player Data")
-        int32 MaxPopulation = 20;
+        int32 MaxPopulation = 0; // 初始为0，全靠 HQ 和 兵营 提供
 
     // 玩家的军队阵容
     UPROPERTY(BlueprintReadWrite, Category = "SaveData")
@@ -39,4 +39,17 @@ public:
 
     // 标记：是否已经初始化过基地？(防止第一次运行把预设的删了)
     bool bHasSavedBase = false;
+
+    // 重置所有玩家数据 (新游戏时调用)
+    UFUNCTION(BlueprintCallable)
+        void ResetData()
+    {
+        PlayerGold = 5000;   // 恢复初始钱
+        PlayerElixir = 5000;
+        CurrentPopulation = 0;
+        MaxPopulation = 0;
+        PlayerArmy.Empty();      // 清空兵
+        SavedBuildings.Empty();  // 清空建筑
+        bHasSavedBase = false;
+    }
 };

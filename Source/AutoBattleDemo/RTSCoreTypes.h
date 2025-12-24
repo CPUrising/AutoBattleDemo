@@ -43,6 +43,7 @@ enum class EBuildingType : uint8
     Defense       UMETA(DisplayName = "Defense"),       // 防御建筑（炮塔）
     Headquarters  UMETA(DisplayName = "Headquarters"),  // 大本营
     Wall          UMETA(DisplayName = "Wall"),          // 墙
+    Barracks      UMETA(DisplayName = "Barracks"),      // 兵营
     Other         UMETA(DisplayName = "Other")          // 其他
 };
 
@@ -91,4 +92,8 @@ struct FBuildingSaveData
 
     UPROPERTY(BlueprintReadWrite)
         int32 Level; // 建筑等级
+
+    // 兵营里的库存
+    UPROPERTY(BlueprintReadWrite)
+        TArray<EUnitType> StoredUnitTypes;
 };

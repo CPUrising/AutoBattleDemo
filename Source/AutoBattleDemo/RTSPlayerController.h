@@ -31,9 +31,28 @@ public:
     UFUNCTION(BlueprintCallable)
         void HandleLeftClick();
 
+    // 供 HUD 调用：执行升级
+    UFUNCTION(BlueprintCallable)
+        void RequestUpgradeSelectedBuilding();
+
+    // 供 HUD 获取：当前选中的建筑 (用于显示信息)
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseBuilding* SelectedBuilding;
+
     // 选择移除模式
     UFUNCTION(BlueprintCallable)
         void OnSelectRemoveMode();
+
+    // 当前选中的我方单位
+    UPROPERTY(BlueprintReadOnly, Category = "Selection")
+        class ABaseUnit* SelectedUnit;
+
+    // 处理 Esc 按键
+    void OnPressEsc();
+
+    // 开始移动选中的单位
+    UFUNCTION(BlueprintCallable)
+        void StartRepositioningSelectedUnit();
 
     // 尝试取消当前操作
     // 返回 true 表示成功取消了某个操作
@@ -56,8 +75,14 @@ protected:
     UPROPERTY()
         AActor* PreviewGhostActor;
 
+
+    // 兵种的幽灵
     UPROPERTY(EditDefaultsOnly, Category = "UI")
         TSubclassOf<AActor> PlacementPreviewClass;
+
+    // 建筑的幽灵
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+        TSubclassOf<AActor> PlacementPreviewBuildingClass;
 
     // 辅助函数：更新幽灵位置
     void UpdatePlacementGhost();
@@ -69,7 +94,9 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "UI|Placement")
         UMaterialInterface* InvalidPlacementMaterial; // 非法放置时的材质
 
-
+    // 正在被移动的单位
+    UPROPERTY()
+        class ABaseUnit* UnitBeingMoved;
 
 
 
